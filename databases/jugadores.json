@@ -1,0 +1,178 @@
+[
+    {
+        "id": "PLAYER-01",
+        "full_name": "Romano Ibarra",
+        "tor_id": "TOR-01",
+        "team_id": "TEAM-01",
+        "played": 0,
+        "goals": 0,
+        "red_cards": 0,
+        "red-cards": 0,
+        "mvp": 0
+    },
+    {
+        "id": "PLAYER-02",
+        "full_name": "Juan Pérez",
+        "tor_id": "TOR-01",
+        "team_id": "TEAM-01",
+        "played": 0,
+        "goals": 0,
+        "red_cards": 0,
+        "red-cards": 0,
+        "mvp": 0
+    },
+    {
+        "id": "PLAYER-03",
+        "full_name": "María López",
+        "tor_id": "TOR-01",
+        "team_id": "TEAM-02",
+        "played": 0,
+        "goals": 0,
+        "red_cards": 0,
+        "red-cards": 0,
+        "mvp": 0
+    },
+    {
+        "id": "PLAYER-04",
+        "full_name": "Pedro González",
+        "tor_id": "TOR-01",
+        "team_id": "TEAM-02",
+        "played": 0,
+        "goals": 0,
+        "red_cards": 0,
+        "red-cards": 0,
+        "mvp": 0
+    },
+    {
+        "id": "PLAYER-05",
+        "full_name": "Sofía García",
+        "tor_id": "TOR-01",
+        "team_id": "TEAM-03",
+        "played": 0,
+        "goals": 0,
+        "red_cards": 0,
+        "red-cards": 0,
+        "mvp": 0
+    },
+    {
+        "id": "PLAYER-06",
+        "full_name": "José Hernández",
+        "tor_id": "TOR-01",
+        "team_id": "TEAM-03",
+        "played": 0,
+        "goals": 0,
+        "red_cards": 0,
+        "red-cards": 0,
+        "mvp": 0
+    },
+    {
+        "id": "PLAYER-07",
+        "full_name": "Luisa Romero",
+        "tor_id": "TOR-01",
+        "team_id": "TEAM-04",
+        "played": 0,
+        "goals": 0,
+        "red_cards": 0,
+        "red-cards": 0,
+        "mvp": 0
+    },
+    {
+        "id": "PLAYER-08",
+        "full_name": "Antonio Fernández",
+        "tor_id": "TOR-01",
+        "team_id": "TEAM-04",
+        "played": 0,
+        "goals": 0,
+        "red_cards": 0,
+        "red-cards": 0,
+        "mvp": 0
+    },
+    {
+        "id": "PLAYER-09",
+        "full_name": "Alejandro Sánchez",
+        "tor_id": "TOR-02",
+        "team_id": "TEAM-05",
+        "played": 0,
+        "goals": 0,
+        "red_cards": 0,
+        "red-cards": 0,
+        "mvp": 0
+    },
+    {
+        "id": "PLAYER-10",
+        "full_name": "Andrea Rodríguez",
+        "tor_id": "TOR-02",
+        "team_id": "TEAM-05",
+        "played": 0,
+        "goals": 0,
+        "red_cards": 0,
+        "red-cards": 0,
+        "mvp": 0
+    },
+    {
+        "id": "PLAYER-11",
+        "full_name": "Carlos Gómez",
+        "tor_id": "TOR-02",
+        "team_id": "TEAM-06",
+        "played": 0,
+        "goals": 0,
+        "red_cards": 0,
+        "red-cards": 0,
+        "mvp": 0
+      },
+      {
+        "id": "PLAYER-12",
+        "full_name": "Ana Pérez",
+        "tor_id": "TOR-02",
+        "team_id": "TEAM-06",
+        "played": 0,
+        "goals": 0,
+        "red_cards": 0,
+        "red-cards": 0,
+        "mvp": 0
+      },
+      {
+        "id": "PLAYER-13",
+        "full_name": "David González",
+        "tor_id": "TOR-02",
+        "team_id": "TEAM-07",
+        "played": 0,
+        "goals": 0,
+        "red_cards": 0,
+        "red-cards": 0,
+        "mvp": 0
+      },
+      {
+        "id": "PLAYER-14",
+        "full_name": "Carmen López",
+        "tor_id": "TOR-02",
+        "team_id": "TEAM-07",
+        "played": 0,
+        "goals": 0,
+        "red_cards": 0,
+        "red-cards": 0,
+        "mvp": 0
+      },
+      {
+        "id": "PLAYER-15",
+        "full_name": "Luis Fernández",
+        "tor_id": "TOR-02",
+        "team_id": "TEAM-08",
+        "played": 0,
+        "goals": 0,
+        "red_cards": 0,
+        "red-cards": 0,
+        "mvp": 0
+      },
+      {
+        "id": "PLAYER-16",
+        "full_name": "Marta García",
+        "tor_id": "TOR-02",
+        "team_id": "TEAM-08",
+        "played": 0,
+        "goals": 0,
+        "red_cards": 0,
+        "red-cards": 0,
+        "mvp": 0
+      }
+]      
