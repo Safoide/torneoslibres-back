@@ -7,6 +7,9 @@ const errorMessages = {
     noMatches_team: 'No se encontraron partidos para el equipo especificado',
     noMatches_tor: 'No se encontraron partidos para el torneo especificado',
 
+    noPlayers_team: 'No se encontraron jugadores para el equipo especificado',
+    noPlayers_tor: 'No se encontraron jugadores para el equipo especificado',
+
     wrongData: 'Ocurrio un error al enviar los datos',
 }
 

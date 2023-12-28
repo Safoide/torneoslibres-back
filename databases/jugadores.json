@@ -6,8 +6,8 @@
         "team_id": "TEAM-01",
         "played": 0,
         "goals": 0,
+        "yellow_cards": 0,
         "red_cards": 0,
-        "red-cards": 0,
         "mvp": 0
     },
     {
@@ -17,8 +17,8 @@
         "team_id": "TEAM-01",
         "played": 0,
         "goals": 0,
+        "yellow_cards": 0,
         "red_cards": 0,
-        "red-cards": 0,
         "mvp": 0
     },
     {
@@ -28,8 +28,8 @@
         "team_id": "TEAM-02",
         "played": 0,
         "goals": 0,
+        "yellow_cards": 0,
         "red_cards": 0,
-        "red-cards": 0,
         "mvp": 0
     },
     {
@@ -39,8 +39,8 @@
         "team_id": "TEAM-02",
         "played": 0,
         "goals": 0,
+        "yellow_cards": 0,
         "red_cards": 0,
-        "red-cards": 0,
         "mvp": 0
     },
     {
@@ -50,8 +50,8 @@
         "team_id": "TEAM-03",
         "played": 0,
         "goals": 0,
+        "yellow_cards": 0,
         "red_cards": 0,
-        "red-cards": 0,
         "mvp": 0
     },
     {
@@ -61,8 +61,8 @@
         "team_id": "TEAM-03",
         "played": 0,
         "goals": 0,
+        "yellow_cards": 0,
         "red_cards": 0,
-        "red-cards": 0,
         "mvp": 0
     },
     {
@@ -72,8 +72,8 @@
         "team_id": "TEAM-04",
         "played": 0,
         "goals": 0,
+        "yellow_cards": 0,
         "red_cards": 0,
-        "red-cards": 0,
         "mvp": 0
     },
     {
@@ -83,8 +83,8 @@
         "team_id": "TEAM-04",
         "played": 0,
         "goals": 0,
+        "yellow_cards": 0,
         "red_cards": 0,
-        "red-cards": 0,
         "mvp": 0
     },
     {
@@ -94,8 +94,8 @@
         "team_id": "TEAM-05",
         "played": 0,
         "goals": 0,
+        "yellow_cards": 0,
         "red_cards": 0,
-        "red-cards": 0,
         "mvp": 0
     },
     {
@@ -105,8 +105,8 @@
         "team_id": "TEAM-05",
         "played": 0,
         "goals": 0,
+        "yellow_cards": 0,
         "red_cards": 0,
-        "red-cards": 0,
         "mvp": 0
     },
     {
@@ -116,8 +116,8 @@
         "team_id": "TEAM-06",
         "played": 0,
         "goals": 0,
+        "yellow_cards": 0,
         "red_cards": 0,
-        "red-cards": 0,
         "mvp": 0
       },
       {
@@ -127,8 +127,8 @@
         "team_id": "TEAM-06",
         "played": 0,
         "goals": 0,
+        "yellow_cards": 0,
         "red_cards": 0,
-        "red-cards": 0,
         "mvp": 0
       },
       {
@@ -138,8 +138,8 @@
         "team_id": "TEAM-07",
         "played": 0,
         "goals": 0,
+        "yellow_cards": 0,
         "red_cards": 0,
-        "red-cards": 0,
         "mvp": 0
       },
       {
@@ -149,8 +149,8 @@
         "team_id": "TEAM-07",
         "played": 0,
         "goals": 0,
+        "yellow_cards": 0,
         "red_cards": 0,
-        "red-cards": 0,
         "mvp": 0
       },
       {
@@ -160,8 +160,8 @@
         "team_id": "TEAM-08",
         "played": 0,
         "goals": 0,
+        "yellow_cards": 0,
         "red_cards": 0,
-        "red-cards": 0,
         "mvp": 0
       },
       {
@@ -171,8 +171,8 @@
         "team_id": "TEAM-08",
         "played": 0,
         "goals": 0,
+        "yellow_cards": 0,
         "red_cards": 0,
-        "red-cards": 0,
         "mvp": 0
       }
 ]      
