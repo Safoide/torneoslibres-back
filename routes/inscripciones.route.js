@@ -1,9 +1,8 @@
 import { Router } from 'express';
-import InscripcionesManager from '../manager/inscripcionesManager.js';
+import { inscripcionesManager as manager } from '../manager/instances.js';
 import { requireAuth, requireRol } from '../middleware/auth.js';
 
 const router = Router();
-const manager = new InscripcionesManager('./databases/inscripciones.json');
 
 const send = (res, result) => result?.error ? res.status(400).json(result) : res.json(result);
 const fail = (res, err) => res.status(500).json({ error: err.message || String(err) });

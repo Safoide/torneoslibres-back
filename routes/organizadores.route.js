@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { organizadoresManager as manager } from '../manager/instances.js';
 import { requireAuth, requireRol } from '../middleware/auth.js';
+import { conOrganizacion } from '../middleware/organizador.js';
+import { dashboardDe } from '../services/dashboardService.js';
 
 const router = Router();
 
@@ -23,6 +25,15 @@ router.get('/', (req, res) => {
 // Debe ir antes de '/:orgId'. Devuelve mi organizacion o null
 router.get('/mia', requireAuth, (req, res) => {
     res.json(manager.miOrganizacion(req.userId));
+})
+
+// Panel de mi organizacion: estadisticas, plata y torneos. Tambien antes de '/:orgId'
+router.get('/mia/dashboard', requireAuth, requireRol('organizador'), conOrganizacion, (req, res) => {
+    try {
+        res.json(dashboardDe(req.org.id));
+    } catch (err) {
+        fail(res, err);
+    }
 })
 
 router.get('/:orgId', (req, res) => {
