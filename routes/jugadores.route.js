@@ -47,40 +47,7 @@ router.get('/torneo/:torId',(req,res)=>{
 })
 
 
-router.post('/', (req, res) => {
-    try {
-        const newPlayer = req.body;
-
-        manager.addPlayer(newPlayer)
-            .then(response => res.json(response));
-    } catch (err) {
-        res.status(500).json({error: err});
-    }
-})
-
-
-router.put('/:playerId', (req, res) => {
-    try {
-        const { playerId } = req.params;
-        const modifiedPlayer = req.body;
-
-        manager.editPlayer(playerId, modifiedPlayer)
-            .then(response => res.json(response));
-    } catch (err) {
-        res.status(500).json({error: err});
-    }
-})
-
-
-router.delete('/:playerId', (req, res) => {
-    try {
-        const { playerId } = req.params;
-
-        manager.deletePlayer(playerId)
-            .then(response => res.json(response));
-    } catch (err) {
-        res.status(500).json({error: err});
-    }
-})
+// Alta, edicion y baja: no se exponen. Los equipos entran por la inscripcion (/inscripciones)
+// y se editan desde el equipo del capitan (/clubes); las estadisticas las calcula el servidor.
 
 export default router;

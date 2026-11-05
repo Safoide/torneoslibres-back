@@ -1,0 +1,121 @@
+[
+    {
+        "id": "USR-3443668b",
+        "nombre": "Romano",
+        "email": "romanoibarra12@gmail.com",
+        "passwordHash": "$2b$10$ZnQ6wbsJa7zCH00O914fYOrv1Az1vrV4TJudF/sbWvjPP2oOg7l2y",
+        "creado": "2026-11-04T08:36:23.762Z"
+    },
+    {
+        "id": "USR-34d4f45a",
+        "nombre": "romano",
+        "email": "romanoibarra@gmail.com",
+        "passwordHash": "$2b$10$ueERFDEXOOcTSMAtAjwLkeMTlR7cZ71.1uNtsNZegaydJQqBv5pCi",
+        "rol": "capitan",
+        "creado": "2026-11-04T20:37:43.778Z"
+    },
+    {
+        "id": "USR-1a1f6000",
+        "nombre": "Liga Parque Norte",
+        "email": "parquenorte@torneoslibres.test",
+        "passwordHash": "$2b$10$kP4v8UFZW8rrNCeiyjIjMOPnbT6kPc1kwGWvvr5CU6WHlJzlX9L26",
+        "rol": "organizador",
+        "creado": "2026-11-05T07:57:58.556Z"
+    },
+    {
+        "id": "USR-a0856200",
+        "nombre": "Belgrano Fútbol Amateur",
+        "email": "belgrano@torneoslibres.test",
+        "passwordHash": "$2b$10$kP4v8UFZW8rrNCeiyjIjMOPnbT6kPc1kwGWvvr5CU6WHlJzlX9L26",
+        "rol": "organizador",
+        "creado": "2026-11-05T07:57:58.556Z"
+    },
+    {
+        "id": "USR-3a346a63",
+        "nombre": "Urquiza Sports",
+        "email": "urquiza@torneoslibres.test",
+        "passwordHash": "$2b$10$kP4v8UFZW8rrNCeiyjIjMOPnbT6kPc1kwGWvvr5CU6WHlJzlX9L26",
+        "rol": "organizador",
+        "creado": "2026-11-05T07:57:58.556Z"
+    },
+    {
+        "id": "USR-6cca5bb1",
+        "nombre": "Federación Caballito",
+        "email": "caballito@torneoslibres.test",
+        "passwordHash": "$2b$10$kP4v8UFZW8rrNCeiyjIjMOPnbT6kPc1kwGWvvr5CU6WHlJzlX9L26",
+        "rol": "organizador",
+        "creado": "2026-11-05T07:57:58.556Z"
+    },
+    {
+        "id": "USR-4b93f0b8",
+        "nombre": "Pibas FC",
+        "email": "pibasfc@torneoslibres.test",
+        "passwordHash": "$2b$10$kP4v8UFZW8rrNCeiyjIjMOPnbT6kPc1kwGWvvr5CU6WHlJzlX9L26",
+        "rol": "organizador",
+        "creado": "2026-11-05T07:57:58.556Z"
+    },
+    {
+        "id": "USR-92696291",
+        "nombre": "Almagro 5",
+        "email": "almagro5@torneoslibres.test",
+        "passwordHash": "$2b$10$kP4v8UFZW8rrNCeiyjIjMOPnbT6kPc1kwGWvvr5CU6WHlJzlX9L26",
+        "rol": "organizador",
+        "creado": "2026-11-05T07:57:58.556Z"
+    },
+    {
+        "id": "USR-40c46237",
+        "nombre": "Crespo Juega",
+        "email": "crespojuega@torneoslibres.test",
+        "passwordHash": "$2b$10$kP4v8UFZW8rrNCeiyjIjMOPnbT6kPc1kwGWvvr5CU6WHlJzlX9L26",
+        "rol": "organizador",
+        "creado": "2026-11-05T07:57:58.556Z"
+    },
+    {
+        "id": "USR-eeef252a",
+        "nombre": "Liga Barrial Flores",
+        "email": "flores@torneoslibres.test",
+        "passwordHash": "$2b$10$kP4v8UFZW8rrNCeiyjIjMOPnbT6kPc1kwGWvvr5CU6WHlJzlX9L26",
+        "rol": "organizador",
+        "creado": "2026-11-05T07:57:58.556Z"
+    },
+    {
+        "id": "USR-2b1c5be8",
+        "nombre": "PP Sports",
+        "email": "pp@torneoslibres.test",
+        "passwordHash": "$2b$10$kP4v8UFZW8rrNCeiyjIjMOPnbT6kPc1kwGWvvr5CU6WHlJzlX9L26",
+        "rol": "organizador",
+        "creado": "2026-11-05T07:57:58.556Z"
+    },
+    {
+        "id": "USR-449de0bf",
+        "nombre": "Zona Norte F11",
+        "email": "zonanorte@torneoslibres.test",
+        "passwordHash": "$2b$10$kP4v8UFZW8rrNCeiyjIjMOPnbT6kPc1kwGWvvr5CU6WHlJzlX9L26",
+        "rol": "organizador",
+        "creado": "2026-11-05T07:57:58.556Z"
+    },
+    {
+        "id": "USR-f0814c3f",
+        "nombre": "San Isidro Amateur",
+        "email": "sanisidro@torneoslibres.test",
+        "passwordHash": "$2b$10$kP4v8UFZW8rrNCeiyjIjMOPnbT6kPc1kwGWvvr5CU6WHlJzlX9L26",
+        "rol": "organizador",
+        "creado": "2026-11-05T07:57:58.556Z"
+    },
+    {
+        "id": "USR-05b29e6e",
+        "nombre": "Lanús Fútbol 5",
+        "email": "lanus5@torneoslibres.test",
+        "passwordHash": "$2b$10$kP4v8UFZW8rrNCeiyjIjMOPnbT6kPc1kwGWvvr5CU6WHlJzlX9L26",
+        "rol": "organizador",
+        "creado": "2026-11-05T07:57:58.556Z"
+    },
+    {
+        "id": "USR-8efc80e7",
+        "nombre": "Avellaneda 8",
+        "email": "avellaneda8@torneoslibres.test",
+        "passwordHash": "$2b$10$kP4v8UFZW8rrNCeiyjIjMOPnbT6kPc1kwGWvvr5CU6WHlJzlX9L26",
+        "rol": "organizador",
+        "creado": "2026-11-05T07:57:58.556Z"
+    }
+]

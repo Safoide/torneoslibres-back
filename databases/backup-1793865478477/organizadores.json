@@ -1,0 +1,130 @@
+[
+    {
+        "id": "ORG-01",
+        "nombre": "Liga Parque Norte",
+        "logo": "",
+        "descripcion": "Torneos de F5 y F7 en Palermo con árbitros oficiales y fixture online.",
+        "zona": "Palermo",
+        "instagram": "ligaparquenorte",
+        "whatsapp": "5491100000001"
+    },
+    {
+        "id": "ORG-02",
+        "nombre": "Belgrano Fútbol Amateur",
+        "logo": "",
+        "descripcion": "Ligas nocturnas entre semana en Belgrano.",
+        "zona": "Belgrano",
+        "instagram": "belgranoamateur",
+        "whatsapp": "5491100000002"
+    },
+    {
+        "id": "ORG-03",
+        "nombre": "Urquiza Sports",
+        "logo": "",
+        "descripcion": "Torneos mixtos en Villa Urquiza.",
+        "zona": "Villa Urquiza",
+        "instagram": "urquizasports",
+        "whatsapp": "5491100000003"
+    },
+    {
+        "id": "ORG-04",
+        "nombre": "Federación Caballito",
+        "logo": "",
+        "descripcion": "Fútbol 11 en césped natural en Caballito.",
+        "zona": "Caballito",
+        "instagram": "federacioncaballito",
+        "whatsapp": "5491100000004"
+    },
+    {
+        "id": "ORG-05",
+        "nombre": "Pibas FC",
+        "logo": "",
+        "descripcion": "Torneos femeninos para todos los niveles.",
+        "zona": "Núñez",
+        "instagram": "pibasfc",
+        "whatsapp": "5491100000005"
+    },
+    {
+        "id": "ORG-06",
+        "nombre": "Almagro 5",
+        "logo": "",
+        "descripcion": "Relámpagos de un día en Almagro.",
+        "zona": "Almagro",
+        "instagram": "almagro5",
+        "whatsapp": "5491100000006"
+    },
+    {
+        "id": "ORG-07",
+        "nombre": "Crespo Juega",
+        "logo": "",
+        "descripcion": "F5 mixto en Villa Crespo.",
+        "zona": "Villa Crespo",
+        "instagram": "crespojuega",
+        "whatsapp": "5491100000007"
+    },
+    {
+        "id": "ORG-08",
+        "nombre": "Liga Barrial Flores",
+        "logo": "",
+        "descripcion": "La opción más económica de la zona oeste.",
+        "zona": "Flores",
+        "instagram": "ligabarrialflores",
+        "whatsapp": "5491100000008"
+    },
+    {
+        "id": "ORG-09",
+        "nombre": "PP Sports",
+        "logo": "",
+        "descripcion": "Torneos de F8 en Parque Patricios.",
+        "zona": "Parque Patricios",
+        "instagram": "ppsports",
+        "whatsapp": "5491100000009"
+    },
+    {
+        "id": "ORG-10",
+        "nombre": "Zona Norte F11",
+        "logo": "",
+        "descripcion": "Fútbol 11 en Vicente López.",
+        "zona": "Vicente López",
+        "instagram": "zonanortef11",
+        "whatsapp": "5491100000010"
+    },
+    {
+        "id": "ORG-11",
+        "nombre": "San Isidro Amateur",
+        "logo": "",
+        "descripcion": "Ligas de F7 en San Isidro.",
+        "zona": "San Isidro",
+        "instagram": "sanisidroamateur",
+        "whatsapp": "5491100000011"
+    },
+    {
+        "id": "ORG-12",
+        "nombre": "Lanús Fútbol 5",
+        "logo": "",
+        "descripcion": "F5 en Lanús.",
+        "zona": "Lanús",
+        "instagram": "lanusfutbol5",
+        "whatsapp": "5491100000012"
+    },
+    {
+        "id": "ORG-13",
+        "nombre": "Avellaneda 8",
+        "logo": "",
+        "descripcion": "F8 en Avellaneda.",
+        "zona": "Avellaneda",
+        "instagram": "avellaneda8",
+        "whatsapp": "5491100000013"
+    },
+    {
+        "id": "ORG-14",
+        "nombre": "Gambeta Simple",
+        "logo": "/uploads/7f88b58b-79ad-4618-a3a9-feaf76b7fdba.jpg",
+        "descripcion": "",
+        "zona": "Palermo",
+        "instagram": "",
+        "whatsapp": "",
+        "ownerId": "USR-3443668b",
+        "creada": "2026-11-04T08:36:39.675Z"
+    }
+]

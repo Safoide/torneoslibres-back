@@ -21,3 +21,9 @@
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+# datos personales / credenciales
+databases/usuarios.json
+databases/inscripciones.json
+
+databases/clubes.json
+uploads/

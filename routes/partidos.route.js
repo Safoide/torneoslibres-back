@@ -1,86 +1,51 @@
 import { Router } from 'express';
-import PartidosManager from '../manager/partidosManager.js';
+import { partidosManager as manager } from '../manager/instances.js';
+import { requireAuth, requireRol } from '../middleware/auth.js';
+import { conOrganizacion, miTorneo } from '../middleware/organizador.js';
+import { recalcularTabla } from '../services/fixtureService.js';
+
 const router = Router();
-let manager = new PartidosManager('./databases/partidos.json');
-let partidos = manager.getPartidos();
 
-router.get('/',(req,res)=>{
-    try{
-        res.json(partidos)
-    }
-    catch(err){
-        res.status(500).json({error:err})
-    }
-})
+const fail = (res, err) => res.status(500).json({ error: err.message || String(err) });
 
-router.get('/partido/:matchId',(req,res) => {
-    try{
-        const { matchId } = req.params;
+// Lectura: publica
 
-        res.json(manager.getPartidoById(matchId));
-    }
-    catch(err){
-        res.status(500).json({error:err});
-    }
-})
+router.get('/', (req, res) => {
+    res.json(manager.getPartidos());
+});
 
-router.get('/equipo/:teamId',(req,res)=>{
-    try{
-        const { teamId } = req.params;
-        
-        res.json(manager.getPartidosByTeam(teamId));
-    }
-    catch(err){
-        res.status(500).json({error:err});
-    }
-})
+router.get('/partido/:matchId', (req, res) => {
+    res.json(manager.getPartidoById(req.params.matchId));
+});
 
-router.get('/torneo/:torId',(req,res)=>{
-    try{
-        const { torId } = req.params;
-        
-        res.json(manager.getPartidosByTournament(torId));
-    }
-    catch(err){
-        res.status(500).json({error:err});
-    }
-})
+router.get('/equipo/:teamId', (req, res) => {
+    res.json(manager.getPartidosByTeam(req.params.teamId));
+});
 
+router.get('/torneo/:torId', (req, res) => {
+    res.json(manager.getPartidosByTournament(req.params.torId));
+});
 
-router.post('/', (req, res) => {
-    try {
-        const newMatch = req.body;
+// Los partidos se crean y se borran junto con su fecha (/fechas), no de a uno.
+// Cargar el resultado: solo el organizador dueño del torneo, y solo cuando el partido ya empezó.
+router.put('/:matchId', requireAuth, requireRol('organizador'), conOrganizacion, (req, res) => {
+    const partido = manager.getPartidoById(req.params.matchId);
+    if (partido.error) return res.status(404).json(partido);
 
-        manager.addMatch(newMatch)
-            .then(response => res.json(response));
-    } catch (err) {
-        res.status(500).json({error: err});
-    }
-})
+    const { error, status } = miTorneo(req, partido.tor_id);
+    if (error) return res.status(status).json({ error });
 
+    const local = Number(req.body?.home_goals);
+    const visita = Number(req.body?.away_goals);
+    const valido = (n) => Number.isInteger(n) && n >= 0 && n <= 99;
 
-router.put('/:matchId', (req, res) => {
-    try {
-        const { matchId } = req.params;
-        const modifiedMatch = req.body;
+    if (!valido(local) || !valido(visita)) return res.status(400).json({ error: 'Los goles deben ser números enteros entre 0 y 99' });
+    if (new Date(partido.date).getTime() > Date.now()) return res.status(400).json({ error: 'El partido todavía no se jugó' });
 
-        manager.editMatch(matchId, modifiedMatch)
-            .then(response => res.json(response));
-    } catch (err) {
-        res.status(500).json({error: err});
-    }
-})
-
-
-router.delete('/:matchId', (req, res) => {
-    try {
-        const { matchId } = req.params;
-
-        manager.deleteMatch(matchId)
-            .then(response => res.json(response));
-    } catch (err) {
-        res.status(500).json({error: err});
-    }
-})
+    // Solo se toman los goles: nunca se copia el body entero
+    manager.editMatch(partido.id, { home_goals: local, away_goals: visita })
+        .then(async (editado) => { await recalcularTabla(partido.tor_id); res.json(editado); })
+        .catch(err => fail(res, err));
+});
 
 export default router;

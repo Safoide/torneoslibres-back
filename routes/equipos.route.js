@@ -1,7 +1,6 @@
 import { Router } from "express";
-import EquiposManager from "../manager/equiposManager.js";
+import { equiposManager as manager } from "../manager/instances.js";
 const router = Router();
-let manager = new EquiposManager('./databases/equipos.json');
 let equipos = manager.getEquipos();
 
 router.get('/', (req, res) => {
@@ -33,40 +32,7 @@ router.get('/torneo/:torId', (req, res) => {
 })
 
 
-router.post('/', (req, res) => {
-    try {
-        const newTeam = req.body;
-
-        manager.addTeam(newTeam)
-            .then(response => res.json(response));
-    } catch (err) {
-        res.status(500).json({error: err});
-    }
-})
-
-
-router.put('/:teamId', (req, res) => {
-    try {
-        const { teamId } = req.params;
-        const modifiedTeam = req.body;
-
-        manager.editTeam(teamId, modifiedTeam)
-            .then(response => res.json(response));
-    } catch (err) {
-        res.status(500).json({error: err});
-    }
-})
-
-
-router.delete('/:teamId', (req, res) => {
-    try {
-        const { teamId } = req.params;
-
-        manager.deleteTeam(teamId)
-            .then(response => res.json(response));
-    } catch (err) {
-        res.status(500).json({error: err});
-    }
-})
+// Alta, edicion y baja: no se exponen. Los equipos entran por la inscripcion (/inscripciones)
+// y se editan desde el equipo del capitan (/clubes); las estadisticas las calcula el servidor.
 
 export default router;

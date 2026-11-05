@@ -1,0 +1,36 @@
+import jwt from 'jsonwebtoken';
+import { usuariosManager } from '../manager/instances.js';
+
+// En producción el secreto TIENE que venir de una variable de entorno
+const SECRET = process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? null : 'dev-secret-cambiar');
+if (!SECRET) throw new Error('Falta la variable de entorno JWT_SECRET');
+
+// `v` es la version de sesion de la cuenta: al cerrar sesiones en todos los dispositivos o cambiar la contraseña sube,
+// y los tokens anteriores dejan de valer
+export const signToken = (user) =>
+    jwt.sign({ sub: user.id, rol: user.rol, v: usuariosManager.getRaw(user.id)?.tokenVersion ?? 0 }, SECRET, { expiresIn: '7d' });
+
+export const requireAuth = (req, res, next) => {
+    const [type, token] = (req.headers.authorization || '').split(' ');
+
+    if (type !== 'Bearer' || !token) return res.status(401).json({ error: 'Tenés que iniciar sesión' });
+
+    try {
+        const payload = jwt.verify(token, SECRET);
+        const cuenta = usuariosManager.getRaw(payload.sub);
+
+        if (!cuenta) return res.status(401).json({ error: 'La cuenta ya no existe' });
+        if ((payload.v ?? 0) !== (cuenta.tokenVersion ?? 0)) return res.status(401).json({ error: 'Sesión vencida, iniciá sesión de nuevo' });
+
+        req.userId = payload.sub;
+        req.rol = payload.rol ?? 'organizador'; // las cuentas anteriores a los roles eran de organizador
+        next();
+    } catch {
+        res.status(401).json({ error: 'Sesión vencida, iniciá sesión de nuevo' });
+    }
+};
+
+export const requireRol = (rol) => (req, res, next) => {
+    if (req.rol !== rol) return res.status(403).json({ error: `Esta acción es solo para cuentas de ${rol}` });
+    next();
+};

@@ -59,6 +59,28 @@ class PartidosManager {
         return this.partidos;
     }
 
+    nextNumber() {
+        return this.partidos.reduce((max, p) => Math.max(max, parseInt(String(p.id).split('-')[1], 10) || 0), 0) + 1;
+    }
+
+    // Agrega varios partidos de una vez (las fechas nuevas quedan primero)
+    async addMatches(lista) {
+        this.getPartidos();
+
+        const n = this.nextNumber();
+        const nuevos = lista.map((m, i) => ({ id: formatId('MATCH', n + i), ...m }));
+
+        this.partidos = [...nuevos.reverse(), ...this.partidos];
+        await fs.promises.writeFile(this.path, JSON.stringify(this.partidos));
+
+        return nuevos;
+    }
+
+    async deleteByFecha(torId, fecha) {
+        this.partidos = this.partidos.filter(p => !(p.tor_id === torId && p.fecha === fecha));
+        await fs.promises.writeFile(this.path, JSON.stringify(this.partidos));
+    }
+
     // PUT
  
     async editMatch(matchId, modifiedMatch) {
