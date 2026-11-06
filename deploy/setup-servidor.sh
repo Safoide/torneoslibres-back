@@ -25,6 +25,7 @@ if [ ! -f "$BASE/.env" ]; then
   cat > "$BASE/.env" <<EOF
 NODE_ENV=production
 PORT=4000
+HOST=127.0.0.1
 JWT_SECRET=$(openssl rand -hex 32)
 DATA_DIR=$BASE/data
 UPLOADS_DIR=$BASE/uploads
@@ -36,6 +37,9 @@ chown -R deploy:deploy "$BASE" /home/deploy/.ssh
 chmod 600 /home/deploy/.ssh/authorized_keys
 
 echo "==> nginx"
+if [ -f /etc/nginx/sites-available/torneoslibres ]; then
+  echo "   Ya estaba configurado (y quizás con HTTPS de certbot): no lo toco."
+else
 cat > /etc/nginx/sites-available/torneoslibres <<EOF
 server {
     listen 80;
@@ -83,6 +87,7 @@ fi
 ln -sf /etc/nginx/sites-available/torneoslibres /etc/nginx/sites-enabled/torneoslibres
 rm -f /etc/nginx/sites-enabled/default
 nginx -t && systemctl reload nginx
+fi
 
 echo "==> pm2 arranca solo al reiniciar el servidor"
 pm2 startup systemd -u deploy --hp /home/deploy >/dev/null
@@ -93,9 +98,10 @@ cat > /etc/cron.d/torneoslibres-backup <<EOF
 EOF
 
 echo "==> Firewall"
-SSH_PORT=$(sshd -T 2>/dev/null | awk '/^port /{print $2; exit}')
+SSH_PORT=$(ss -tlnpH 2>/dev/null | awk '/"sshd"/{n=split($4,a,":"); print a[n]; exit}' || true)
 if [ -n "$SSH_PORT" ]; then
   ufw allow "$SSH_PORT/tcp"
+  [ -n "${SSH_PORT_EXTERNO:-}" ] && ufw allow "$SSH_PORT_EXTERNO/tcp"
   ufw allow 'Nginx Full'
   ufw --force enable
 else

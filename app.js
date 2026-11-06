@@ -43,7 +43,8 @@ app.use('/amistosos', amistososRouter);
 app.use('/multas', multasRouter);
 app.use('/auth', authRouter);
 
-app.listen(port,() => {
+// En el servidor HOST=127.0.0.1: solo nginx llega a la API (el puerto 4000 no queda abierto a internet)
+app.listen(port, process.env.HOST || undefined, () => {
     console.log("Server listening in port: " + port);
 })
 
