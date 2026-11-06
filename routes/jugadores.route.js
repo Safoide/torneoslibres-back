@@ -1,7 +1,8 @@
 import { Router } from 'express';
+import { dataPath } from '../config.js';
 import JugadoresManager from '../manager/jugadoresManager.js';
 const router = Router();
-let manager = new JugadoresManager('./databases/jugadores.json');
+let manager = new JugadoresManager(dataPath('jugadores.json'));
 let partidos = manager.getJugadores();
 
 router.get('/',(req,res)=>{

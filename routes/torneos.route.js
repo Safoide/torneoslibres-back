@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { torneosManager as manager, organizadoresManager } from '../manager/instances.js';
+import { reglasDe } from '../manager/torneosManager.js';
 import { requireAuth } from '../middleware/auth.js';
 const router = Router()
 
@@ -58,7 +59,8 @@ router.get('/:torId', (req,res) => {
 
         if (result.error) return res.status(404).json(result);
 
-        res.json(result)
+        // Las reglas de pago resueltas (los torneos viejos no las tienen guardadas y usan las default)
+        res.json({ ...result, reglasPago: reglasDe(result) })
     }
     catch(err){
         fail(res, err)
@@ -98,6 +100,17 @@ router.post('/', requireAuth, conOrganizacion, (req, res) => {
 router.put('/:torId', requireAuth, conOrganizacion, esDeMiOrganizacion, (req, res) => {
     const { error, datos } = manager.sanitize(req.body, { parcial: true });
     if (error) return res.status(400).json({ error });
+
+    // Las reglas de pago quedan fijas cuando el torneo empieza, para no cambiarlas a mitad de camino
+    if (datos.reglasPago && ['en-curso', 'finalizado'].includes(req.tor.estado)) {
+        return res.status(400).json({ error: 'Las reglas de pago no se pueden cambiar una vez que el torneo empezó' });
+    }
+
+    // Cambiar el limite de edad con equipos ya anotados dejaria afuera a alguno que se inscribio cumpliendo
+    if (datos.limiteEdad !== undefined && req.tor.equiposInscriptos > 0
+        && JSON.stringify(datos.limiteEdad) !== JSON.stringify(req.tor.limiteEdad ?? null)) {
+        return res.status(400).json({ error: 'El límite de edad no se puede cambiar porque ya hay equipos inscriptos' });
+    }
 
     if (datos.equiposMax !== undefined && datos.equiposMax < req.tor.equiposInscriptos) {
         return res.status(400).json({ error: `Ya hay ${req.tor.equiposInscriptos} equipos inscriptos: el cupo no puede ser menor` });

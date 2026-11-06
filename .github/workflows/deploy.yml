@@ -1,0 +1,39 @@
+# Cada push a master sube la API al servidor y la reinicia.
+# Secrets del repo (Settings > Secrets and variables > Actions): SSH_HOST, SSH_PORT, SSH_KEY
+name: Deploy API
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+concurrency: deploy-api
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      DESTINO: deploy@${{ secrets.SSH_HOST }}
+      SSH: ssh -p ${{ secrets.SSH_PORT || 22 }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Clave SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -p "${{ secrets.SSH_PORT || 22 }}" "${{ secrets.SSH_HOST }}" >> ~/.ssh/known_hosts
+
+      # Los datos (databases/, uploads/) NO se suben: en el servidor viven en /srv/torneoslibres/data y /uploads
+      - name: Subir código
+        run: >
+          rsync -az --delete -e "$SSH"
+          --exclude .git --exclude .github --exclude node_modules
+          --exclude databases --exclude uploads
+          ./ "$DESTINO:/srv/torneoslibres/api/"
+
+      - name: Instalar dependencias y reiniciar
+        run: >
+          $SSH "$DESTINO"
+          'cd /srv/torneoslibres/api && npm ci --omit=dev && pm2 startOrReload deploy/ecosystem.config.cjs --update-env && pm2 save'

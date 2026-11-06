@@ -1,8 +1,10 @@
 import { Router } from 'express';
 import multer from 'multer';
 import fs from 'fs';
+import path from 'path';
 import { randomUUID } from 'crypto';
 import { requireAuth } from '../middleware/auth.js';
+import { UPLOADS_DIR } from '../config.js';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 2 * 1024 * 1024, files: 1 } });
@@ -25,7 +27,7 @@ router.post('/logo', requireAuth, (req, res) => {
 
         try {
             const nombre = `${randomUUID()}.${tipo}`; // nombre aleatorio: nunca usamos el que manda el cliente
-            await fs.promises.writeFile(`./uploads/${nombre}`, req.file.buffer);
+            await fs.promises.writeFile(path.join(UPLOADS_DIR, nombre), req.file.buffer);
             res.status(201).json({ url: `/uploads/${nombre}` });
         } catch {
             res.status(500).json({ error: 'No se pudo guardar la imagen' });

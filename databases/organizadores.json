@@ -139,5 +139,16 @@
         "whatsapp": "",
         "ownerId": "USR-3443668b",
         "creada": "2026-11-04T08:36:39.675Z"
+    },
+    {
+        "id": "ORG-15",
+        "nombre": "Liga de Casos de Prueba",
+        "zona": "Palermo",
+        "descripcion": "Organización de prueba con un torneo armado para cada caso de pago, penalización y amistoso.",
+        "instagram": "",
+        "whatsapp": "5491155550000",
+        "logo": "",
+        "ownerId": "USR-072e2f4d",
+        "creada": "2026-11-05T23:17:22.564Z"
     }
 ]

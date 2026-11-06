@@ -1,5 +1,13 @@
 import fs from 'fs';
 import { randomUUID } from 'crypto';
+import { fueraDeEdad, textoLimiteEdad, edadEn } from './torneosManager.js';
+
+// YYYY-MM-DD y que sea una fecha real (no 2001-02-30)
+const fechaValida = (f) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(f)) return false;
+    const d = new Date(f + 'T00:00:00Z');
+    return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === f;
+};
 
 // Solo se aceptan logos subidos por nuestro propio endpoint (evita URLs externas o rutas raras)
 const LOGO_RE = /^\/uploads\/[0-9a-f-]{36}\.(png|jpg|webp)$/;
@@ -51,14 +59,17 @@ class ClubesManager {
             const nombreJ = String(j?.nombre ?? '').trim();
             const apellido = String(j?.apellido ?? '').trim();
             const dni = String(j?.dni ?? '').replace(/\D/g, '');
-            const edad = Number(j?.edad);
+            const nacimiento = String(j?.nacimiento ?? '').trim();
 
             if (!nombreJ || nombreJ.length > 40 || !apellido || apellido.length > 40) return { error: `Jugador ${n}: completá nombre y apellido` };
             if (dni.length < 7 || dni.length > 8) return { error: `Jugador ${n}: el DNI debe tener 7 u 8 dígitos` };
-            if (!Number.isInteger(edad) || edad < 10 || edad > 80) return { error: `Jugador ${n}: la edad debe estar entre 10 y 80` };
+            if (!nacimiento) return { error: `Jugador ${n}: completá la fecha de nacimiento` };
+            if (!fechaValida(nacimiento)) return { error: `Jugador ${n}: la fecha de nacimiento no es válida` };
+            const edad = edadEn(nacimiento);
+            if (edad < 10 || edad > 80) return { error: `Jugador ${n}: la fecha de nacimiento no es válida (tiene que tener entre 10 y 80 años)` };
             if (jugadores.some(x => x.dni === dni)) return { error: `Jugador ${n}: el DNI ${dni} está repetido` };
 
-            jugadores.push({ nombre: nombreJ, apellido, dni, edad });
+            jugadores.push({ nombre: nombreJ, apellido, dni, nacimiento });
         }
 
         if (this.clubes.some(c => c.id !== idActual && c.nombre.toLowerCase() === nombre.toLowerCase())) {
@@ -102,6 +113,15 @@ class ClubesManager {
 
         const { error, datos } = this.limpiar(data, clubId);
         if (error) return { error };
+
+        // Si esta anotado en un torneo con limite de edad que no termino, el plantel nuevo tiene que seguir cumpliendolo
+        for (const e of this.equiposManager.getEquipos().filter(e => e.club_id === clubId)) {
+            const tor = this.torneosManager.getTorneoById(e.tor_id);
+            if (tor.error || tor.estado === 'finalizado' || !tor.limiteEdad) continue;
+
+            const [j] = fueraDeEdad(datos.jugadores, tor);
+            if (j) return { error: `${j.nombre} ${j.apellido} (${j.edad} al inicio) no cumple con el límite de edad de "${tor.nombre}" (${textoLimiteEdad(tor.limiteEdad)}), donde tu equipo está inscripto` };
+        }
 
         Object.assign(club, datos);
         await this.save();

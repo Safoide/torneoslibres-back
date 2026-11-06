@@ -1,8 +1,9 @@
 import fs from 'fs';
 import { randomUUID } from 'crypto';
 import { byId } from '../assets.js';
-import { torneosManager, equiposManager, clubesManager } from './instances.js';
+import { torneosManager, equiposManager, clubesManager, multasManager } from './instances.js';
 import { cobrar } from '../services/pagosService.js';
+import { fueraDeEdad, errorEdad } from './torneosManager.js';
 
 const MIN_JUGADORES = { f5: 5, f7: 7, f8: 8, f11: 11 };
 
@@ -32,10 +33,17 @@ class InscripcionesManager {
         const club = clubesManager.getRawByOwner(ownerId);
         if (!club) return { error: 'Primero tenés que crear tu equipo' };
 
+        const bloqueo = multasManager.bloqueo(club.id); // con multas pendientes no puede inscribirse
+        if (bloqueo) return { error: bloqueo, multasPendientes: true };
+
         const min = MIN_JUGADORES[tor.modalidad] ?? 0;
         if (club.jugadores.length < min) {
             return { error: `Para ${tor.modalidad.toUpperCase()} necesitás al menos ${min} jugadores anotados (tenés ${club.jugadores.length})` };
         }
+
+        // Torneo con limite de edad: todo el plantel tiene que cumplirlo
+        const fuera = fueraDeEdad(club.jugadores, tor);
+        if (fuera.length) return { error: errorEdad(fuera, tor.limiteEdad), limiteEdad: true };
 
         const yaEsta = equiposManager.getEquipos().some(e =>
             e.tor_id === torId && (e.club_id === club.id || e.name.toLowerCase() === club.nombre.toLowerCase()));
@@ -82,6 +90,13 @@ class InscripcionesManager {
 
             const club = clubesManager.getRawByOwner(insc.ownerId);
             if (!club || club.id !== insc.clubId) return { error: 'No encontramos tu equipo' };
+
+            const bloqueo = multasManager.bloqueo(club.id);
+            if (bloqueo) return { error: bloqueo, multasPendientes: true };
+
+            // Por si cambio el plantel entre el paso 1 y el pago
+            const fuera = fueraDeEdad(club.jugadores, tor);
+            if (fuera.length) return { error: errorEdad(fuera, tor.limiteEdad), limiteEdad: true };
 
             const pago = await cobrar({ monto: insc.monto, metodo, simular });
             if (!pago.ok) return { error: pago.motivo };

@@ -1,6 +1,6 @@
 import express from "express";
 import cors from "cors";
-import fs from "fs";
+import { UPLOADS_DIR } from "./config.js";
 
 import clubesRouter from "./routes/clubes.route.js";
 import uploadsRouter from "./routes/uploads.route.js";
@@ -12,21 +12,24 @@ import jugadoresRouter from "./routes/jugadores.route.js";
 import inscripcionesRouter from "./routes/inscripciones.route.js";
 import organizadoresRouter from "./routes/organizadores.route.js";
 import authRouter from "./routes/auth.route.js";
+import amistososRouter from "./routes/amistosos.route.js";
+import multasRouter from "./routes/multas.route.js";
+import { procesarVencimientos } from "./services/vencimientosService.js";
 
 const app = express();
-const port = 4000;
+const port = process.env.PORT || 4000; // en el hosting (Render, etc.) el puerto lo asigna el servicio
 
 app.use(express.json());
 app.use(express.urlencoded({extended:true}));
-app.use(cors());
+// En producción solo acepta pedidos del dominio del front (CORS_ORIGIN, separados por coma); en desarrollo, todos
+const origenes = process.env.CORS_ORIGIN?.split(',').map((o) => o.trim()).filter(Boolean);
+app.use(cors(origenes?.length ? { origin: origenes } : undefined));
 
 app.get('/', (req, res) => {
     res.sendFile('/src/index.html', {root: '.'});
 })
 
-fs.mkdirSync('./uploads', { recursive: true });
-
-app.use('/uploads', express.static('uploads', { setHeaders: (res) => res.setHeader('X-Content-Type-Options', 'nosniff') }));
+app.use('/uploads', express.static(UPLOADS_DIR, { setHeaders: (res) => res.setHeader('X-Content-Type-Options', 'nosniff') }));
 app.use('/uploads', uploadsRouter);
 app.use('/clubes', clubesRouter);
 app.use('/torneos', torneosRouter);
@@ -36,8 +39,15 @@ app.use('/fechas', fechasRouter);
 app.use('/jugadores', jugadoresRouter);
 app.use('/inscripciones', inscripcionesRouter);
 app.use('/organizadores', organizadoresRouter);
+app.use('/amistosos', amistososRouter);
+app.use('/multas', multasRouter);
 app.use('/auth', authRouter);
 
 app.listen(port,() => {
     console.log("Server listening in port: " + port);
 })
+
+// Pagos de fechas vencidos (W.O. y amistosos express): al arrancar y despues cada minuto
+const vencer = () => procesarVencimientos().catch(err => console.error('Error procesando vencimientos:', err));
+vencer();
+setInterval(vencer, 60 * 1000);

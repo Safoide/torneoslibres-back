@@ -1,4 +1,4 @@
-import { torneosManager, equiposManager, fechasManager, partidosManager, inscripcionesManager } from '../manager/instances.js';
+import { torneosManager, equiposManager, fechasManager, partidosManager, inscripcionesManager, amistososManager, multasManager } from '../manager/instances.js';
 
 const MESES = 6; // cuantos meses muestra el grafico de ingresos
 
@@ -36,14 +36,14 @@ export const dashboardDe = (orgId) => {
         torneos: 0, porEstado: { 'inscripcion-abierta': 0, proximamente: 0, 'en-curso': 0, finalizado: 0 },
         equipos: 0, cupos: 0, fechasJugadas: 0, partidosJugados: 0, partidosProgramados: 0, goles: 0, resultadosPendientes: 0,
     };
-    const dinero = { inscripciones: 0, fechas: 0, porCobrar: 0, restante: 0 };
+    const dinero = { inscripciones: 0, fechas: 0, multas: 0, multasPendientes: 0, porCobrar: 0, restante: 0 };
     const proximas = [];
     const torneos = [];
 
     for (const tor of torneosManager.getTorneos().filter(t => t.organizadorId === orgId)) {
         const equipos = equiposManager.getEquipos().filter(e => e.tor_id === tor.id);
         const partidos = partidosManager.getPartidos().filter(p => p.tor_id === tor.id);
-        const fechas = fechasManager.getByTorneo(tor.id); // de la mas nueva a la mas vieja, con estado
+        const fechas = fechasManager.getRawByTorneo(tor.id); // de la mas nueva a la mas vieja, con estado y el detalle de pagos
         const n = equipos.length;
 
         totales.torneos++;
@@ -61,23 +61,46 @@ export const dashboardDe = (orgId) => {
             sumarMes(dia, monto);
         }
 
-        // Fechas: precio por cada equipo que juega (al que le toca libre no se le cobra)
+        // Fechas con cobro online: lo que pago cada equipo (y lo pendiente, si todavia no vencio).
+        // Fechas viejas sin cobro online: precio por cada equipo que juega (al que le toca libre no se le cobra)
         let ingFechas = 0, porCobrar = 0, pendientes = 0;
         for (const f of fechas) {
             const deLaFecha = partidos.filter(p => p.fecha === f.numero);
-            const monto = (f.precio ?? 0) * deLaFecha.length * 2;
+
+            let cobradoFecha, pendienteFecha;
+            if (f.pagos) {
+                const lista = Object.values(f.pagos);
+                cobradoFecha = lista.filter(p => p.estado === 'pagado').reduce((s, p) => s + (p.pago?.monto ?? p.monto), 0);
+                pendienteFecha = lista.filter(p => p.estado === 'pendiente').reduce((s, p) => s + p.monto, 0);
+            } else {
+                const monto = (f.precio ?? 0) * deLaFecha.length * 2;
+                cobradoFecha = f.estado === 'jugada' ? monto : 0;
+                pendienteFecha = f.estado === 'jugada' ? 0 : monto;
+            }
+
+            // Amistosos express tomados en esta fecha
+            for (const a of amistososManager.amistosos.filter(x => x.fecha_id === f.id && x.estado === 'tomado')) {
+                cobradoFecha += a.pago?.monto ?? a.precio;
+            }
+
+            ingFechas += cobradoFecha;
+            porCobrar += pendienteFecha;
+            if (cobradoFecha) sumarMes(f.dia, cobradoFecha);
 
             if (f.estado === 'jugada') {
-                ingFechas += monto;
-                sumarMes(f.dia, monto);
                 totales.fechasJugadas++;
-                pendientes += deLaFecha.filter(p => !jugado(p)).length;
+                pendientes += deLaFecha.filter(p => !jugado(p) && !p.wo).length; // los W.O. no llevan resultado
             } else {
-                porCobrar += monto;
                 proximas.push({
                     torneo: { id: tor.id, nombre: tor.nombre, modalidad: tor.modalidad },
                     fecha: { id: f.id, numero: f.numero, dia: f.dia, inicio: f.inicio, fin: f.fin, canchas: f.canchas, estado: f.estado },
                     partidos: deLaFecha.length,
+                    // Cuantos equipos ya pagaron su parte (null = fecha sin cobro online)
+                    pagos: f.pagos ? {
+                        pagados: Object.values(f.pagos).filter(p => p.estado === 'pagado').length,
+                        total: Object.keys(f.pagos).length,
+                        vence: f.vencePago,
+                    } : null,
                 });
             }
         }
@@ -86,6 +109,12 @@ export const dashboardDe = (orgId) => {
         const fechasTotales = fechasDelFixture(n);
         const faltan = tor.estado === 'en-curso' ? Math.max(fechasTotales - fechas.length, 0) : 0;
         const restante = faltan * equiposPorFecha(n) * (tor.precioFecha ?? 0);
+
+        // Multas por no pagar fechas a tiempo (si el torneo tiene penalizacion)
+        const multasTor = multasManager.multas.filter(m => m.tor_id === tor.id);
+        const ingMultas = multasTor.filter(m => m.estado === 'pagada').reduce((s, m) => s + m.monto, 0);
+        const multasPend = multasTor.filter(m => m.estado === 'pendiente').reduce((s, m) => s + m.monto, 0);
+        for (const m of multasTor.filter(x => x.estado === 'pagada')) sumarMes(m.pago?.fecha?.slice(0, 10) ?? hoy, m.monto);
 
         const jugados = partidos.filter(jugado);
         const goles = jugados.reduce((s, p) => s + p.home_goals + p.away_goals, 0);
@@ -96,6 +125,8 @@ export const dashboardDe = (orgId) => {
         totales.resultadosPendientes += pendientes;
 
         dinero.inscripciones += ingInscripciones;
+        dinero.multas += ingMultas;
+        dinero.multasPendientes += multasPend;
         dinero.fechas += ingFechas;
         dinero.porCobrar += porCobrar;
         dinero.restante += restante;
@@ -107,7 +138,7 @@ export const dashboardDe = (orgId) => {
             fechasCreadas: fechas.length, fechasJugadas: fechas.filter(f => f.estado === 'jugada').length, fechasTotales,
             partidosJugados: jugados.length, goles,
             resultadosPendientes: pendientes,
-            ingresos: ingInscripciones + ingFechas, inscripciones: ingInscripciones, fechas: ingFechas,
+            ingresos: ingInscripciones + ingFechas + ingMultas, inscripciones: ingInscripciones, fechas: ingFechas, multas: ingMultas,
         });
     }
 
@@ -116,7 +147,7 @@ export const dashboardDe = (orgId) => {
 
     return {
         totales: { ...totales, promedioGoles: totales.partidosJugados ? +(totales.goles / totales.partidosJugados).toFixed(2) : 0 },
-        dinero: { ...dinero, cobrado: dinero.inscripciones + dinero.fechas },
+        dinero: { ...dinero, cobrado: dinero.inscripciones + dinero.fechas + dinero.multas },
         porMes: meses.map(mes => ({ mes, monto: porMes[mes] })),
         proximasFechas: proximas.sort((a, b) => a.fecha.dia.localeCompare(b.fecha.dia) || a.fecha.inicio.localeCompare(b.fecha.inicio)).slice(0, 5),
         torneos,

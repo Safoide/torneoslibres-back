@@ -22,14 +22,24 @@ export const rondasDe = (equipos) => {
     return rondas;
 };
 
-// Recalcula la tabla de posiciones de un torneo a partir de los partidos con resultado
+// Recalcula la tabla de posiciones de un torneo a partir de los partidos con resultado.
+// W.O. simple: ya tiene el 3-0 cargado y cuenta como cualquier resultado.
+// W.O. doble (no pago ninguno): los dos suman un partido perdido, sin goles ni puntos.
 export const recalcularTabla = async (torId) => {
     const equipos = equiposManager.getEquipos().filter(e => e.tor_id === torId);
-    const jugados = partidosManager.getPartidos().filter(p => p.tor_id === torId && p.home_goals !== null && p.away_goals !== null);
+    const delTorneo = partidosManager.getPartidos().filter(p => p.tor_id === torId);
+    const jugados = delTorneo.filter(p => p.home_goals !== null && p.away_goals !== null);
 
     const tabla = new Map(equipos.map(e => [e.id, {
         points: 0, played: 0, wins: 0, draws: 0, losses: 0, goal_difference: 0, goals_for: 0, goals_against: 0,
     }]));
+
+    for (const p of delTorneo.filter(x => x.wo === 'doble')) {
+        for (const id of [p.home_id, p.away_id]) {
+            const t = tabla.get(id);
+            if (t) { t.played++; t.losses++; }
+        }
+    }
 
     for (const p of jugados) {
         for (const [id, gf, gc] of [[p.home_id, p.home_goals, p.away_goals], [p.away_id, p.away_goals, p.home_goals]]) {

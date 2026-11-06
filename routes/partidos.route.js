@@ -41,6 +41,7 @@ router.put('/:matchId', requireAuth, requireRol('organizador'), conOrganizacion,
 
     if (!valido(local) || !valido(visita)) return res.status(400).json({ error: 'Los goles deben ser números enteros entre 0 y 99' });
     if (new Date(partido.date).getTime() > Date.now()) return res.status(400).json({ error: 'El partido todavía no se jugó' });
+    if (partido.wo) return res.status(400).json({ error: 'Este partido se definió por W.O. (un equipo no pagó a tiempo): no se puede cargar el resultado' });
 
     // Solo se toman los goles: nunca se copia el body entero
     manager.editMatch(partido.id, { home_goals: local, away_goals: visita })

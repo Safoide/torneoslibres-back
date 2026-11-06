@@ -10,6 +10,98 @@ const NUMEROS = { equiposMax: [2, 64], precioInscripcion: [0, 10000000], precioF
 const DIAS = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
 const REQUERIDOS = ['nombre', 'modalidad', 'zona', 'sede', 'direccion', 'fechaInicio', 'diaJuego', 'horario', 'equiposMax', 'precioInscripcion'];
 
+// Reglas de pago de las fechas (las elige el organizador; se pueden cambiar hasta que el torneo empieza):
+//  penalizacion: si el equipo que no paga a tiempo pierde 0-3 por W.O. y recibe una multa.
+//                Si esta desactivada no pasa nada automatico: el pago queda vencido y decide el organizador.
+//  multaTipo/multaValor: 'porcentaje' (del precio de la fecha) o 'fijo' (en pesos). 0 = solo el W.O.
+//  amistosos: si el lugar del que no pago se publica como amistoso express (requiere penalizacion).
+export const REGLAS_DEFAULT = { penalizacion: true, multaTipo: 'porcentaje', multaValor: 0, amistosos: true };
+// Los torneos viejos usan las default. Sin penalizacion nunca hay amistosos (no hay W.O. que libere el lugar)
+export const reglasDe = (tor) => {
+    const r = { ...REGLAS_DEFAULT, ...(tor?.reglasPago ?? {}) };
+    return { ...r, amistosos: r.penalizacion && r.amistosos };
+};
+
+// Multa en pesos que corresponde segun las reglas y el precio de la fecha
+export const montoMulta = (reglas, precioFecha) => !reglas.penalizacion ? 0
+    : reglas.multaTipo === 'fijo' ? reglas.multaValor
+    : Math.round((precioFecha ?? 0) * reglas.multaValor / 100);
+
+const limpiarReglas = (r) => {
+    if (!r || typeof r !== 'object') return { error: 'Las reglas de pago no son válidas' };
+
+    const penalizacion = r.penalizacion === true;
+    const multaTipo = r.multaTipo === 'fijo' ? 'fijo' : 'porcentaje';
+    const multaValor = Number(r.multaValor ?? 0);
+    const amistosos = penalizacion && r.amistosos === true; // sin W.O. no hay lugar libre para un amistoso
+
+    if (penalizacion) {
+        const max = multaTipo === 'fijo' ? 10000000 : 100;
+        if (!Number.isInteger(multaValor) || multaValor < 0 || multaValor > max) {
+            return { error: multaTipo === 'fijo' ? 'La multa debe ser un monto entre $0 y $10.000.000' : 'La multa debe ser un porcentaje entre 0 y 100' };
+        }
+    }
+
+    return { reglas: { penalizacion, multaTipo, multaValor: penalizacion ? multaValor : 0, amistosos } };
+};
+
+// Limite de edad (opcional, lo activa el organizador): null = libre, o { min, max } con al menos uno de los dos.
+// Las edades son las que carga el capitan en el plantel (mismo rango que acepta clubesManager).
+const EDAD_RANGO = [10, 80];
+
+const limpiarLimiteEdad = (l) => {
+    if (l === null || l === false) return { limite: null };
+    if (typeof l !== 'object') return { error: 'El límite de edad no es válido' };
+
+    const leer = (v) => (v === undefined || v === null || v === '') ? null : Number(v);
+    const min = leer(l.min);
+    const max = leer(l.max);
+    const [lo, hi] = EDAD_RANGO;
+
+    for (const v of [min, max]) {
+        if (v !== null && (!Number.isInteger(v) || v < lo || v > hi)) return { error: `La edad del límite debe estar entre ${lo} y ${hi} años` };
+    }
+    if (min === null && max === null) return { error: 'Indicá la edad mínima, la máxima o las dos' };
+    if (min !== null && max !== null && min > max) return { error: 'La edad mínima no puede ser mayor que la máxima' };
+
+    return { limite: { min, max } };
+};
+
+// "desde 35 años" | "hasta 20 años" | "de 18 a 25 años"
+export const textoLimiteEdad = (l) => !l ? ''
+    : l.min !== null && l.max !== null ? `de ${l.min} a ${l.max} años`
+    : l.min !== null ? `desde ${l.min} años`
+    : `hasta ${l.max} años`;
+
+// Fecha de hoy en Argentina (YYYY-MM-DD)
+export const hoyAR = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }).format(new Date());
+
+// Años cumplidos a una fecha (las dos en YYYY-MM-DD). Se compara como texto "MM-DD" para no depender de husos horarios.
+export const edadEn = (nacimiento, fecha = hoyAR()) => {
+    const [ny, nmd] = [Number(nacimiento.slice(0, 4)), nacimiento.slice(5)];
+    const [fy, fmd] = [Number(fecha.slice(0, 4)), fecha.slice(5)];
+    return fy - ny - (fmd < nmd ? 1 : 0);
+};
+
+// Jugadores del plantel que no entran en el limite del torneo, con la edad que van a tener al inicio
+// (como en las categorias: el "+35" se cumple el dia que empieza el torneo y vale para todo el torneo)
+export const fueraDeEdad = (jugadores = [], tor) => {
+    const l = tor?.limiteEdad;
+    if (!l) return [];
+
+    return jugadores
+        .map(j => ({ ...j, edad: edadEn(j.nacimiento, tor.fechaInicio) }))
+        .filter(j => (l.min !== null && j.edad < l.min) || (l.max !== null && j.edad > l.max));
+};
+
+// Mensaje para el capitan cuando su plantel no cumple
+export const errorEdad = (fuera, l) => {
+    const nombres = fuera.map(j => `${j.nombre} ${j.apellido} (${j.edad})`).join(', ');
+    return fuera.length === 1
+        ? `Un jugador de tu equipo no cumple con el límite de edad del torneo (${textoLimiteEdad(l)} al inicio): ${nombres}`
+        : `${fuera.length} jugadores de tu equipo no cumplen con el límite de edad del torneo (${textoLimiteEdad(l)} al inicio): ${nombres}`;
+};
+
 // Pasa a minusculas y saca acentos para comparar zonas/textos ("Núñez" == "nunez")
 const normalize = (text = '') =>
     String(text).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
@@ -235,6 +327,18 @@ class TorneosManager {
         }
 
         if (!parcial && !datos.localidad) datos.localidad = 'CABA';
+
+        if (data.reglasPago !== undefined) {
+            const { error, reglas } = limpiarReglas(data.reglasPago);
+            if (error) return { error };
+            datos.reglasPago = reglas;
+        } else if (!parcial) datos.reglasPago = { ...REGLAS_DEFAULT };
+
+        if (data.limiteEdad !== undefined) {
+            const { error, limite } = limpiarLimiteEdad(data.limiteEdad);
+            if (error) return { error };
+            datos.limiteEdad = limite;
+        } else if (!parcial) datos.limiteEdad = null;
 
         if (data.whatsapp !== undefined) {
             const w = String(data.whatsapp).replace(/\D/g, '');

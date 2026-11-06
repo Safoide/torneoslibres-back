@@ -647,5 +647,471 @@
         "canchas": 2,
         "precio": 32000,
         "creada": "2026-11-05T08:39:19.463Z"
+    },
+    {
+        "id": "FECHA-60",
+        "tor_id": "TOR-26",
+        "numero": 1,
+        "dia": "2026-11-11",
+        "inicio": "18:00",
+        "fin": "23:00",
+        "canchas": 3,
+        "precio": 30000,
+        "creada": "2026-11-05T23:17:22.623Z",
+        "vencePago": "2026-11-10T23:59:59-03:00",
+        "reglas": {
+            "penalizacion": true,
+            "multaTipo": "porcentaje",
+            "multaValor": 50,
+            "amistosos": true
+        },
+        "pagos": {
+            "TEAM-170": {
+                "estado": "pendiente",
+                "monto": 30000
+            },
+            "TEAM-175": {
+                "estado": "pendiente",
+                "monto": 30000
+            },
+            "TEAM-171": {
+                "estado": "pagado",
+                "monto": 30000,
+                "pago": {
+                    "id": "PAY-1793920643830",
+                    "metodo": "tarjeta",
+                    "monto": 30000,
+                    "fecha": "2026-11-05T23:17:23.830Z"
+                }
+            },
+            "TEAM-174": {
+                "estado": "pagado",
+                "monto": 30000,
+                "pago": {
+                    "id": "PAY-1793920645040",
+                    "metodo": "tarjeta",
+                    "monto": 30000,
+                    "fecha": "2026-11-05T23:17:25.040Z"
+                }
+            },
+            "TEAM-172": {
+                "estado": "pendiente",
+                "monto": 30000
+            },
+            "TEAM-173": {
+                "estado": "pendiente",
+                "monto": 30000
+            }
+        }
+    },
+    {
+        "id": "FECHA-61",
+        "tor_id": "TOR-27",
+        "numero": 1,
+        "dia": "2026-11-06",
+        "inicio": "18:00",
+        "fin": "23:00",
+        "canchas": 3,
+        "precio": 30000,
+        "creada": "2026-11-05T23:17:25.043Z",
+        "vencePago": "2026-11-05T23:59:59-03:00",
+        "reglas": {
+            "penalizacion": true,
+            "multaTipo": "fijo",
+            "multaValor": 10000,
+            "amistosos": true
+        },
+        "pagos": {
+            "TEAM-176": {
+                "estado": "pendiente",
+                "monto": 30000
+            },
+            "TEAM-179": {
+                "estado": "pagado",
+                "monto": 30000,
+                "pago": {
+                    "id": "PAY-1793920646254",
+                    "metodo": "tarjeta",
+                    "monto": 30000,
+                    "fecha": "2026-11-05T23:17:26.254Z"
+                }
+            },
+            "TEAM-177": {
+                "estado": "pendiente",
+                "monto": 30000
+            },
+            "TEAM-178": {
+                "estado": "pendiente",
+                "monto": 30000
+            }
+        }
+    },
+    {
+        "id": "FECHA-62",
+        "tor_id": "TOR-28",
+        "numero": 1,
+        "dia": "2026-11-10",
+        "inicio": "18:00",
+        "fin": "23:00",
+        "canchas": 3,
+        "precio": 30000,
+        "creada": "2026-11-05T23:17:26.256Z",
+        "vencePago": "2026-11-09T23:59:59-03:00",
+        "reglas": {
+            "penalizacion": true,
+            "multaTipo": "porcentaje",
+            "multaValor": 50,
+            "amistosos": true
+        },
+        "pagos": {
+            "TEAM-180": {
+                "estado": "pagado",
+                "monto": 30000,
+                "pago": {
+                    "id": "PAY-1793920647461",
+                    "metodo": "tarjeta",
+                    "monto": 30000,
+                    "fecha": "2026-11-05T23:17:27.461Z"
+                }
+            },
+            "TEAM-183": {
+                "estado": "pendiente",
+                "monto": 30000
+            },
+            "TEAM-181": {
+                "estado": "pendiente",
+                "monto": 30000
+            },
+            "TEAM-182": {
+                "estado": "pendiente",
+                "monto": 30000
+            }
+        }
+    },
+    {
+        "id": "FECHA-63",
+        "tor_id": "TOR-29",
+        "numero": 1,
+        "dia": "2026-11-09",
+        "inicio": "18:00",
+        "fin": "23:00",
+        "canchas": 3,
+        "precio": 30000,
+        "creada": "2026-11-05T23:17:27.464Z",
+        "vencePago": "2026-11-05T23:16:31.096Z",
+        "reglas": {
+            "penalizacion": true,
+            "multaTipo": "porcentaje",
+            "multaValor": 50,
+            "amistosos": true
+        },
+        "pagos": {
+            "TEAM-184": {
+                "estado": "pagado",
+                "monto": 30000,
+                "pago": {
+                    "id": "PAY-1793920648669",
+                    "metodo": "tarjeta",
+                    "monto": 30000,
+                    "fecha": "2026-11-05T23:17:28.669Z"
+                }
+            },
+            "TEAM-189": {
+                "estado": "vencido",
+                "monto": 30000
+            },
+            "TEAM-185": {
+                "estado": "pagado",
+                "monto": 30000,
+                "pago": {
+                    "id": "PAY-1793920649879",
+                    "metodo": "tarjeta",
+                    "monto": 30000,
+                    "fecha": "2026-11-05T23:17:29.879Z"
+                }
+            },
+            "TEAM-188": {
+                "estado": "pagado",
+                "monto": 30000,
+                "pago": {
+                    "id": "PAY-1793920651094",
+                    "metodo": "tarjeta",
+                    "monto": 30000,
+                    "fecha": "2026-11-05T23:17:31.094Z"
+                }
+            },
+            "TEAM-186": {
+                "estado": "vencido",
+                "monto": 30000
+            },
+            "TEAM-187": {
+                "estado": "vencido",
+                "monto": 30000
+            }
+        },
+        "pagosProcesados": true
+    },
+    {
+        "id": "FECHA-64",
+        "tor_id": "TOR-30",
+        "numero": 1,
+        "dia": "2026-11-10",
+        "inicio": "18:00",
+        "fin": "23:00",
+        "canchas": 3,
+        "precio": 30000,
+        "creada": "2026-11-05T23:17:31.105Z",
+        "vencePago": "2026-11-05T23:16:34.740Z",
+        "reglas": {
+            "penalizacion": true,
+            "multaTipo": "porcentaje",
+            "multaValor": 50,
+            "amistosos": true
+        },
+        "pagos": {
+            "TEAM-190": {
+                "estado": "pagado",
+                "monto": 30000,
+                "pago": {
+                    "id": "PAY-1793920652318",
+                    "metodo": "tarjeta",
+                    "monto": 30000,
+                    "fecha": "2026-11-05T23:17:32.318Z"
+                }
+            },
+            "TEAM-193": {
+                "estado": "vencido",
+                "monto": 30000
+            },
+            "TEAM-191": {
+                "estado": "pagado",
+                "monto": 30000,
+                "pago": {
+                    "id": "PAY-1793920653528",
+                    "metodo": "tarjeta",
+                    "monto": 30000,
+                    "fecha": "2026-11-05T23:17:33.528Z"
+                }
+            },
+            "TEAM-192": {
+                "estado": "pagado",
+                "monto": 30000,
+                "pago": {
+                    "id": "PAY-1793920654739",
+                    "metodo": "tarjeta",
+                    "monto": 30000,
+                    "fecha": "2026-11-05T23:17:34.739Z"
+                }
+            }
+        },
+        "pagosProcesados": true
+    },
+    {
+        "id": "FECHA-65",
+        "tor_id": "TOR-31",
+        "numero": 1,
+        "dia": "2026-11-10",
+        "inicio": "18:00",
+        "fin": "23:00",
+        "canchas": 3,
+        "precio": 30000,
+        "creada": "2026-11-05T23:17:35.962Z",
+        "vencePago": "2026-11-05T23:16:39.593Z",
+        "reglas": {
+            "penalizacion": true,
+            "multaTipo": "fijo",
+            "multaValor": 15000,
+            "amistosos": false
+        },
+        "pagos": {
+            "TEAM-194": {
+                "estado": "pagado",
+                "monto": 30000,
+                "pago": {
+                    "id": "PAY-1793920657170",
+                    "metodo": "tarjeta",
+                    "monto": 30000,
+                    "fecha": "2026-11-05T23:17:37.170Z"
+                }
+            },
+            "TEAM-197": {
+                "estado": "vencido",
+                "monto": 30000
+            },
+            "TEAM-195": {
+                "estado": "pagado",
+                "monto": 30000,
+                "pago": {
+                    "id": "PAY-1793920658378",
+                    "metodo": "tarjeta",
+                    "monto": 30000,
+                    "fecha": "2026-11-05T23:17:38.378Z"
+                }
+            },
+            "TEAM-196": {
+                "estado": "pagado",
+                "monto": 30000,
+                "pago": {
+                    "id": "PAY-1793920659592",
+                    "metodo": "tarjeta",
+                    "monto": 30000,
+                    "fecha": "2026-11-05T23:17:39.593Z"
+                }
+            }
+        },
+        "pagosProcesados": true
+    },
+    {
+        "id": "FECHA-66",
+        "tor_id": "TOR-32",
+        "numero": 1,
+        "dia": "2026-11-10",
+        "inicio": "18:00",
+        "fin": "23:00",
+        "canchas": 3,
+        "precio": 30000,
+        "creada": "2026-11-05T23:17:39.599Z",
+        "vencePago": "2026-11-05T23:16:44.428Z",
+        "reglas": {
+            "penalizacion": false,
+            "multaTipo": "porcentaje",
+            "multaValor": 0,
+            "amistosos": false
+        },
+        "pagos": {
+            "TEAM-198": {
+                "estado": "pagado",
+                "monto": 30000,
+                "pago": {
+                    "id": "PAY-1793920660803",
+                    "metodo": "tarjeta",
+                    "monto": 30000,
+                    "fecha": "2026-11-05T23:17:40.803Z"
+                }
+            },
+            "TEAM-203": {
+                "estado": "vencido",
+                "monto": 30000
+            },
+            "TEAM-199": {
+                "estado": "pagado",
+                "monto": 30000,
+                "pago": {
+                    "id": "PAY-1793920664427",
+                    "metodo": "tarjeta",
+                    "monto": 30000,
+                    "fecha": "2026-11-05T23:17:44.427Z"
+                }
+            },
+            "TEAM-202": {
+                "estado": "vencido",
+                "monto": 30000
+            },
+            "TEAM-200": {
+                "estado": "pagado",
+                "monto": 30000,
+                "pago": {
+                    "id": "PAY-1793920662010",
+                    "metodo": "tarjeta",
+                    "monto": 30000,
+                    "fecha": "2026-11-05T23:17:42.010Z"
+                }
+            },
+            "TEAM-201": {
+                "estado": "pagado",
+                "monto": 30000,
+                "pago": {
+                    "id": "PAY-1793920663224",
+                    "metodo": "tarjeta",
+                    "monto": 30000,
+                    "fecha": "2026-11-05T23:17:43.224Z"
+                }
+            }
+        },
+        "pagosProcesados": true
+    },
+    {
+        "id": "FECHA-67",
+        "tor_id": "TOR-33",
+        "numero": 1,
+        "dia": "2026-11-11",
+        "inicio": "18:00",
+        "fin": "23:00",
+        "canchas": 3,
+        "precio": 30000,
+        "creada": "2026-11-05T23:17:44.431Z",
+        "vencePago": "2026-11-10T23:59:59-03:00",
+        "reglas": {
+            "penalizacion": true,
+            "multaTipo": "porcentaje",
+            "multaValor": 50,
+            "amistosos": true
+        },
+        "pagos": {
+            "TEAM-205": {
+                "estado": "pendiente",
+                "monto": 30000
+            },
+            "TEAM-208": {
+                "estado": "pendiente",
+                "monto": 30000
+            },
+            "TEAM-206": {
+                "estado": "pendiente",
+                "monto": 30000
+            },
+            "TEAM-207": {
+                "estado": "pendiente",
+                "monto": 30000
+            }
+        }
+    },
+    {
+        "id": "FECHA-68",
+        "tor_id": "TOR-34",
+        "numero": 1,
+        "dia": "2026-11-10",
+        "inicio": "18:00",
+        "fin": "23:00",
+        "canchas": 3,
+        "precio": 30000,
+        "creada": "2026-11-05T23:17:44.433Z",
+        "vencePago": "2026-11-09T23:59:59-03:00",
+        "reglas": {
+            "penalizacion": true,
+            "multaTipo": "porcentaje",
+            "multaValor": 50,
+            "amistosos": true
+        },
+        "pagos": {
+            "TEAM-209": {
+                "estado": "pagado",
+                "monto": 30000,
+                "pago": {
+                    "id": "PAY-1793920665639",
+                    "metodo": "tarjeta",
+                    "monto": 30000,
+                    "fecha": "2026-11-05T23:17:45.640Z"
+                }
+            },
+            "TEAM-212": {
+                "estado": "pagado",
+                "monto": 30000,
+                "pago": {
+                    "id": "PAY-1793920666849",
+                    "metodo": "tarjeta",
+                    "monto": 30000,
+                    "fecha": "2026-11-05T23:17:46.849Z"
+                }
+            },
+            "TEAM-210": {
+                "estado": "pendiente",
+                "monto": 30000
+            },
+            "TEAM-211": {
+                "estado": "pendiente",
+                "monto": 30000
+            }
+        }
     }
 ]
