@@ -18,9 +18,16 @@ import amistososRouter from "./routes/amistosos.route.js";
 import multasRouter from "./routes/multas.route.js";
 import { procesarVencimientos } from "./services/vencimientosService.js";
 import { migrar, copiarBase, DB_FILE } from "./db/index.js";
+import { importarJsonViejos } from "./db/importarJson.js";
 
 // Crea o actualiza la estructura de la base antes de atender pedidos (en produccion arranca vacia)
 await migrar();
+// Si la base está vacía y quedaron los JSON de antes en DATA_DIR, los pasa a la base (una sola vez)
+try {
+    await importarJsonViejos();
+} catch (err) {
+    console.error("No se pudieron importar los JSON viejos (la base sigue vacía y los JSON quedan como estaban):", err);
+}
 console.log("Base de datos: " + DB_FILE);
 
 const app = express();

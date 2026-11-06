@@ -36,4 +36,4 @@ jobs:
       - name: Instalar dependencias y reiniciar
         run: >
           $SSH "$DESTINO"
-          'cd /srv/torneoslibres/api && npm ci --omit=dev && pm2 startOrReload deploy/ecosystem.config.cjs --update-env && pm2 save'
+          'cd /srv/torneoslibres/api && npm ci --omit=dev --ignore-scripts && pm2 startOrReload deploy/ecosystem.config.cjs --update-env && pm2 save'
