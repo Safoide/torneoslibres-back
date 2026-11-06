@@ -1,3 +1,4 @@
+import { fail } from '../middleware/errores.js';
 import { Router } from 'express';
 import { fechasManager, clubesManager, torneosManager, equiposManager, amistososManager, multasManager } from '../manager/instances.js';
 import { procesarVencimientos } from '../services/vencimientosService.js';
@@ -6,7 +7,6 @@ import { conOrganizacion, miTorneo } from '../middleware/organizador.js';
 
 const router = Router();
 
-const fail = (res, err) => res.status(500).json({ error: err.message || String(err) });
 
 // Tu proxima fecha (capitan): una por cada torneo en curso donde esta anotado su equipo,
 // con el estado del pago de su parte y, si el rival no pago, el resultado por W.O. y el amistoso publicado

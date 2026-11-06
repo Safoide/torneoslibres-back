@@ -1,3 +1,4 @@
+import { fail } from '../middleware/errores.js';
 import { Router } from 'express';
 import { multasManager as manager, clubesManager } from '../manager/instances.js';
 import { requireAuth, requireRol } from '../middleware/auth.js';
@@ -5,7 +6,6 @@ import { procesarVencimientos } from '../services/vencimientosService.js';
 
 const router = Router();
 
-const fail = (res, err) => res.status(500).json({ error: err.message || String(err) });
 
 // Multas pendientes de mi equipo (capitan)
 router.get('/mias', requireAuth, requireRol('capitan'), async (req, res) => {

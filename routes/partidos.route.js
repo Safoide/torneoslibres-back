@@ -1,3 +1,4 @@
+import { fail } from '../middleware/errores.js';
 import { Router } from 'express';
 import { partidosManager as manager } from '../manager/instances.js';
 import { requireAuth, requireRol } from '../middleware/auth.js';
@@ -6,7 +7,6 @@ import { recalcularTabla } from '../services/fixtureService.js';
 
 const router = Router();
 
-const fail = (res, err) => res.status(500).json({ error: err.message || String(err) });
 
 // Lectura: publica
 

@@ -1,3 +1,4 @@
+import { fail } from '../middleware/errores.js';
 import { Router } from "express";
 import { equiposManager as manager } from "../manager/instances.js";
 const router = Router();
@@ -7,7 +8,7 @@ router.get('/', (req, res) => {
     try {
         res.json(equipos);
     } catch(err) {
-        res.status(500).json({error: err});
+        fail(res, err);
     }
 })
 
@@ -17,7 +18,7 @@ router.get('/equipo/:teamId', (req, res) => {
 
         res.json(manager.getEquipoById(teamId));
     } catch (err) {
-        res.status(500).json({error: err});
+        fail(res, err);
     }
 })
 
@@ -27,7 +28,7 @@ router.get('/torneo/:torId', (req, res) => {
 
         res.json(manager.getEquiposByTournament(torId));
     } catch (err) {
-        res.status(500).json({error: err});
+        fail(res, err);
     }
 })
 

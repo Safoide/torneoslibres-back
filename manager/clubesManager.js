@@ -1,5 +1,6 @@
 import fs from 'fs';
 import { randomUUID } from 'crypto';
+import { logoValido } from '../config.js';
 import { fueraDeEdad, textoLimiteEdad, edadEn } from './torneosManager.js';
 
 // YYYY-MM-DD y que sea una fecha real (no 2001-02-30)
@@ -9,8 +10,6 @@ const fechaValida = (f) => {
     return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === f;
 };
 
-// Solo se aceptan logos subidos por nuestro propio endpoint (evita URLs externas o rutas raras)
-const LOGO_RE = /^\/uploads\/[0-9a-f-]{36}\.(png|jpg|webp)$/;
 const MAX_JUGADORES = 30;
 
 class ClubesManager {
@@ -47,7 +46,7 @@ class ClubesManager {
 
         if (nombre.length < 3 || nombre.length > 40) return { error: 'El nombre del equipo debe tener entre 3 y 40 caracteres' };
         if (whatsapp.length < 10 || whatsapp.length > 15) return { error: 'Ingresá tu WhatsApp con código de país (10 a 15 dígitos)' };
-        if (logo && (!LOGO_RE.test(logo) || !fs.existsSync(`.${logo}`))) return { error: 'El logo no es válido: subí la imagen de nuevo' };
+        if (logo && !logoValido(logo)) return { error: 'El logo no es válido: subí la imagen de nuevo' };
 
         const lista = Array.isArray(data.jugadores) ? data.jugadores : [];
         if (lista.length > MAX_JUGADORES) return { error: `El plantel admite hasta ${MAX_JUGADORES} jugadores` };

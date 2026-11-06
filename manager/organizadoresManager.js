@@ -1,5 +1,6 @@
 import fs from 'fs';
 import { formatId } from '../assets.js';
+import { logoValido } from '../config.js';
 
 const HANDLE_RE = /^[A-Za-z0-9._]{1,30}$/;
 
@@ -57,7 +58,7 @@ class OrganizadoresManager {
         if (descripcion.length > 300) return { error: 'La descripción puede tener hasta 300 caracteres' };
         if (instagram && !HANDLE_RE.test(instagram)) return { error: 'El usuario de Instagram no es válido (sin @ ni links)' };
         if (whatsapp && (whatsapp.length < 10 || whatsapp.length > 15)) return { error: 'El WhatsApp debe tener entre 10 y 15 dígitos, con código de país' };
-        if (logo && !/^\/uploads\/[\w-]{1,80}\.(png|jpg|webp)$/i.test(logo)) return { error: 'El logo no es válido' };
+        if (logo && !logoValido(logo)) return { error: 'El logo no es válido: subí la imagen de nuevo' };
 
         if (this.organizadores.some(o => o.id !== idActual && o.nombre.toLowerCase() === nombre.toLowerCase())) {
             return { error: 'Ya existe una organización con ese nombre' };

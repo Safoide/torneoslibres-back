@@ -1,12 +1,13 @@
+import { fail } from '../middleware/errores.js';
 import { Router } from 'express';
 import { usuariosManager as manager, clubesManager, organizadoresManager } from '../manager/instances.js';
 import { requireAuth, signToken } from '../middleware/auth.js';
+import { limiteLoginIp, limiteLoginEmail, limiteRegistro } from '../middleware/limites.js';
 
 const router = Router();
 
-const fail = (res, err) => res.status(500).json({ error: err.message || String(err) });
 
-router.post('/register', async (req, res) => {
+router.post('/register', limiteRegistro, async (req, res) => {
     try {
         const user = await manager.registrar(req.body);
         if (user.error) return res.status(400).json(user);
@@ -15,7 +16,7 @@ router.post('/register', async (req, res) => {
     } catch (err) { fail(res, err); }
 })
 
-router.post('/login', async (req, res) => {
+router.post('/login', limiteLoginIp, limiteLoginEmail, async (req, res) => {
     try {
         const user = await manager.login(req.body);
         if (user.error) return res.status(401).json(user);

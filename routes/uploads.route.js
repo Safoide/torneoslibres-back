@@ -5,6 +5,7 @@ import path from 'path';
 import { randomUUID } from 'crypto';
 import { requireAuth } from '../middleware/auth.js';
 import { UPLOADS_DIR } from '../config.js';
+import { limiteUploads } from '../middleware/limites.js';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 2 * 1024 * 1024, files: 1 } });
@@ -17,7 +18,7 @@ const detectarTipo = (b) => {
     return null;
 };
 
-router.post('/logo', requireAuth, (req, res) => {
+router.post('/logo', requireAuth, limiteUploads, (req, res) => {
     upload.single('logo')(req, res, async (err) => {
         if (err) return res.status(400).json({ error: err.code === 'LIMIT_FILE_SIZE' ? 'La imagen pesa más de 2 MB' : 'No se pudo subir la imagen' });
         if (!req.file) return res.status(400).json({ error: 'Falta la imagen' });

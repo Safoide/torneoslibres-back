@@ -12,6 +12,18 @@ class InscripcionesManager {
         this.path = path;
         this.inscripciones = JSON.parse(fs.readFileSync(path));
         this.procesando = new Set(); // evita cobrar dos veces si se toca "Pagar" dos veces
+        // Cupos reservados por pagos en curso (torId -> cantidad): el cobro tarda, y sin esto
+        // dos equipos que pagan el último cupo a la vez entrarían los dos
+        this.reservas = new Map();
+    }
+
+    reservados(torId) {
+        return this.reservas.get(torId) ?? 0;
+    }
+
+    reservar(torId, delta) {
+        const n = this.reservados(torId) + delta;
+        n > 0 ? this.reservas.set(torId, n) : this.reservas.delete(torId);
     }
 
     save() {
@@ -79,6 +91,7 @@ class InscripcionesManager {
         if (this.procesando.has(id)) return { error: 'El pago ya se está procesando' };
 
         this.procesando.add(id);
+        let reservado = false;
 
         try {
             const tor = torneosManager.getTorneoById(insc.torId);
@@ -86,6 +99,9 @@ class InscripcionesManager {
 
             if (tor.estado !== 'inscripcion-abierta' || tor.equiposInscriptos >= tor.equiposMax) {
                 return { error: 'Se agotaron los cupos o cerró la inscripción' };
+            }
+            if (tor.equiposInscriptos + this.reservados(tor.id) >= tor.equiposMax) {
+                return { error: 'Otro equipo está pagando el último cupo en este momento. Probá de nuevo en unos segundos.' };
             }
 
             const club = clubesManager.getRawByOwner(insc.ownerId);
@@ -98,7 +114,11 @@ class InscripcionesManager {
             const fuera = fueraDeEdad(club.jugadores, tor);
             if (fuera.length) return { error: errorEdad(fuera, tor.limiteEdad), limiteEdad: true };
 
-            const pago = await cobrar({ monto: insc.monto, metodo, simular });
+            // Desde aca hasta anotar al equipo no hay ningun await antes de reservar: nadie mas puede tomar este cupo
+            this.reservar(tor.id, 1);
+            reservado = true;
+
+            const pago = await cobrar({ monto: insc.monto, metodo: metodo === 'mercadopago' ? 'mercadopago' : 'tarjeta', simular });
             if (!pago.ok) return { error: pago.motivo };
 
             const equipo = await equiposManager.addTeam({
@@ -107,7 +127,9 @@ class InscripcionesManager {
                 goal_difference: 0, goals_for: 0, goals_against: 0,
             });
 
-            await torneosManager.editTor(tor.id, { equiposInscriptos: tor.equiposInscriptos + 1 });
+            // Se lee el valor actual (no el de antes del cobro) por si otro equipo se anoto mientras tanto
+            const actual = torneosManager.getTorneoById(tor.id);
+            await torneosManager.editTor(tor.id, { equiposInscriptos: actual.equiposInscriptos + 1 });
 
             insc.estado = 'confirmada';
             insc.equipoId = equipo.id;
@@ -116,6 +138,7 @@ class InscripcionesManager {
 
             return insc;
         } finally {
+            if (reservado) this.reservar(insc.torId, -1);
             this.procesando.delete(id);
         }
     }

@@ -1,3 +1,4 @@
+import { fail } from '../middleware/errores.js';
 import { Router } from 'express';
 import { inscripcionesManager as manager } from '../manager/instances.js';
 import { requireAuth, requireRol } from '../middleware/auth.js';
@@ -5,7 +6,6 @@ import { requireAuth, requireRol } from '../middleware/auth.js';
 const router = Router();
 
 const send = (res, result) => result?.error ? res.status(400).json(result) : res.json(result);
-const fail = (res, err) => res.status(500).json({ error: err.message || String(err) });
 
 // La inscripcion tiene que ser del usuario logueado
 const esMia = (req, res, next) => {

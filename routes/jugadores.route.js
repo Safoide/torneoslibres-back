@@ -1,3 +1,4 @@
+import { fail } from '../middleware/errores.js';
 import { Router } from 'express';
 import { dataPath } from '../config.js';
 import JugadoresManager from '../manager/jugadoresManager.js';
@@ -10,7 +11,7 @@ router.get('/',(req,res)=>{
         res.json(partidos)
     }
     catch(err){
-        res.status(500).json({error:err})
+        fail(res, err);
     }
 })
 
@@ -21,7 +22,7 @@ router.get('/jugador/:playerId',(req,res) => {
         res.json(manager.getJugadorById(playerId));
     }
     catch(err){
-        res.status(500).json({error:err});
+        fail(res, err);
     }
 })
 
@@ -32,7 +33,7 @@ router.get('/equipo/:teamId',(req,res)=>{
         res.json(manager.getJugadoresByTeam(teamId));
     }
     catch(err){
-        res.status(500).json({error:err});
+        fail(res, err);
     }
 })
 
@@ -43,7 +44,7 @@ router.get('/torneo/:torId',(req,res)=>{
         res.json(manager.getJugadoresByTournament(torId));
     }
     catch(err){
-        res.status(500).json({error:err});
+        fail(res, err);
     }
 })
 

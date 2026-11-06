@@ -1,3 +1,4 @@
+import { fail } from '../middleware/errores.js';
 import { Router } from 'express';
 import { clubesManager as manager } from '../manager/instances.js';
 import { requireAuth, requireRol } from '../middleware/auth.js';
@@ -6,7 +7,6 @@ import { torneosDeClub } from '../services/misTorneosService.js';
 const router = Router();
 
 const send = (res, result, ok = 200) => res.status(result?.error ? 400 : ok).json(result);
-const fail = (res, err) => res.status(500).json({ error: err.message || String(err) });
 
 // Solo deja pasar si el equipo es del usuario logueado
 const esMio = (req, res, next) => {

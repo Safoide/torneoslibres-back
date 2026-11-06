@@ -37,8 +37,21 @@ chown -R deploy:deploy "$BASE" /home/deploy/.ssh
 chmod 600 /home/deploy/.ssh/authorized_keys
 
 echo "==> nginx"
+# Headers de seguridad del sitio. Van en un snippet porque nginx descarta los add_header del server
+# en cada location que define los suyos: hay que incluirlo en todas. Se reescribe siempre (no pisa nada de certbot).
+mkdir -p /etc/nginx/snippets
+cat > /etc/nginx/snippets/torneoslibres-headers.conf <<'EOF2'
+add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+add_header X-Content-Type-Options "nosniff" always;
+add_header X-Frame-Options "DENY" always;
+add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
+EOF2
+
 if [ -f /etc/nginx/sites-available/torneoslibres ]; then
   echo "   Ya estaba configurado (y quizás con HTTPS de certbot): no lo toco."
+  echo "   Si todavía no incluye los headers de seguridad, agregá 'include snippets/torneoslibres-headers.conf;'"
+  echo "   en el server y en las location /static/ y = /index.html, y corré: nginx -t && systemctl reload nginx"
 else
 cat > /etc/nginx/sites-available/torneoslibres <<EOF
 server {
@@ -47,6 +60,8 @@ server {
     root $BASE/front;
     index index.html;
     client_max_body_size 3m;
+    server_tokens off;
+    include snippets/torneoslibres-headers.conf;
 
     # La API: torneoslibres.com/api/... -> Node en el puerto 4000
     location /api/ {
@@ -55,16 +70,23 @@ server {
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
+        # Estos headers ya los pone nginx (snippet): se sacan los de la API para que no lleguen duplicados
+        proxy_hide_header Strict-Transport-Security;
+        proxy_hide_header X-Content-Type-Options;
+        proxy_hide_header X-Frame-Options;
+        proxy_hide_header Referrer-Policy;
     }
 
     # Archivos del build con hash en el nombre: se cachean para siempre
     location /static/ {
         expires 1y;
+        include snippets/torneoslibres-headers.conf;
         add_header Cache-Control "public, immutable";
     }
 
     # index.html nunca se cachea, así cada deploy se ve al instante
     location = /index.html {
+        include snippets/torneoslibres-headers.conf;
         add_header Cache-Control "no-cache";
     }
 
