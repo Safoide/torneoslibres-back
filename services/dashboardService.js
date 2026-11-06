@@ -43,7 +43,7 @@ export const dashboardDe = async (orgId) => {
     const confirmadas = new Map(inscripciones.filter(i => i.equipoId).map(i => [i.equipoId, i]));
 
     const totales = {
-        torneos: 0, porEstado: { 'inscripcion-abierta': 0, proximamente: 0, 'en-curso': 0, finalizado: 0 },
+        torneos: 0, porEstado: { 'inscripcion-abierta': 0, proximamente: 0, 'inscripcion-cerrada': 0, 'en-curso': 0, finalizado: 0 },
         equipos: 0, cupos: 0, fechasJugadas: 0, partidosJugados: 0, partidosProgramados: 0, goles: 0, resultadosPendientes: 0,
     };
     const dinero = { inscripciones: 0, fechas: 0, multas: 0, multasPendientes: 0, porCobrar: 0, restante: 0 };
@@ -117,7 +117,7 @@ export const dashboardDe = async (orgId) => {
 
         // Lo que falta programar del fixture en los torneos en curso
         const fechasTotales = fechasDelFixture(n);
-        const faltan = tor.estado === 'en-curso' ? Math.max(fechasTotales - fechas.length, 0) : 0;
+        const faltan = ['en-curso', 'inscripcion-cerrada'].includes(tor.estado) ? Math.max(fechasTotales - fechas.length, 0) : 0;
         const restante = faltan * equiposPorFecha(n) * (tor.precioFecha ?? 0);
 
         // Multas por no pagar fechas a tiempo (si el torneo tiene penalizacion)
@@ -152,7 +152,7 @@ export const dashboardDe = async (orgId) => {
         });
     }
 
-    const orden = { 'en-curso': 0, 'inscripcion-abierta': 1, proximamente: 2, finalizado: 3 };
+    const orden = { 'en-curso': 0, 'inscripcion-cerrada': 1, 'inscripcion-abierta': 2, proximamente: 3, finalizado: 4 };
     torneos.sort((a, b) => (orden[a.estado] ?? 9) - (orden[b.estado] ?? 9) || a.fechaInicio.localeCompare(b.fechaInicio));
 
     return {

@@ -17,6 +17,7 @@ import authRouter from "./routes/auth.route.js";
 import amistososRouter from "./routes/amistosos.route.js";
 import multasRouter from "./routes/multas.route.js";
 import { procesarVencimientos } from "./services/vencimientosService.js";
+import { procesarEstados } from "./services/estadosService.js";
 import { migrar, copiarBase, DB_FILE } from "./db/index.js";
 import { importarJsonViejos } from "./db/importarJson.js";
 
@@ -80,8 +81,12 @@ app.listen(port, process.env.HOST || undefined, () => {
     console.log("Server listening in port: " + port);
 })
 
-// Pagos de fechas vencidos (W.O. y amistosos express): al arrancar y despues cada minuto
-const vencer = () => procesarVencimientos().catch(err => console.error('Error procesando vencimientos:', err));
+// Cada minuto (y al arrancar): estados de los torneos (cierre de inscripción e inicio automáticos)
+// y pagos de fechas vencidos (W.O. y amistosos express)
+const vencer = () => procesarEstados()
+    .catch(err => console.error('Error actualizando estados de torneos:', err))
+    .then(() => procesarVencimientos())
+    .catch(err => console.error('Error procesando vencimientos:', err));
 vencer();
 setInterval(vencer, 60 * 1000);
 

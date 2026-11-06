@@ -9,7 +9,7 @@ const T = {
     torneos: {
         cols: ['id', 'nombre', 'organizador', 'organizadorId', 'modalidad', 'categoria', 'zona', 'localidad', 'sede', 'direccion',
             'fechaInicio', 'diaJuego', 'horario', 'formato', 'equiposMax', 'equiposInscriptos', 'precioInscripcion', 'precioFecha',
-            'estado', 'whatsapp', 'descripcion', 'reglasPago', 'limiteEdad'],
+            'estado', 'whatsapp', 'descripcion', 'reglasPago', 'limiteEdad', 'cierreInscripcion'],
         json: ['reglasPago', 'limiteEdad'],
     },
     equipos: { cols: ['id', 'name', 'logo', 'club_id', 'tor_id', 'points', 'played', 'wins', 'draws', 'losses', 'goal_difference', 'goals_for', 'goals_against'] },

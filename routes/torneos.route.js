@@ -1,13 +1,14 @@
 import { Router } from '../middleware/router.js';
-import { torneosManager as manager } from '../manager/instances.js';
-import { reglasDe } from '../manager/torneosManager.js';
+import { torneosManager as manager, fechasManager } from '../manager/instances.js';
+import { reglasDe, errorCierre } from '../manager/torneosManager.js';
 import { requireAuth, requireRol } from '../middleware/auth.js';
 import { conOrganizacion } from '../middleware/organizador.js';
+import { cambiarEstado } from '../services/estadosService.js';
 
 const router = Router();
 
-// Orden de los estados: inscripcion-abierta y proximamente son la misma etapa (se puede ir y volver)
-const ETAPA = { 'proximamente': 0, 'inscripcion-abierta': 0, 'en-curso': 1, 'finalizado': 2 };
+const EMPEZADO = ['en-curso', 'finalizado'];
+const tieneFechas = async (torId) => (await fechasManager.filasDeTorneo([torId])).length > 0;
 
 const sendResult = (res, result) => {
     if (result && result.error) return res.status(400).json(result);
@@ -57,6 +58,10 @@ router.post('/', ...soloOrganizador, async (req, res) => {
     const { error, datos } = manager.sanitize(req.body);
     if (error) return res.status(400).json({ error });
 
+    // El cierre de inscripción tiene que respetar el inicio y el cobro por fecha, y no puede haber pasado
+    const errC = errorCierre(datos, { exigirFuturo: true });
+    if (errC) return res.status(400).json({ error: errC });
+
     // organizador, organizadorId y equiposInscriptos los pone el servidor, nunca el cliente
     sendResult(res, await manager.addTor({
         whatsapp: req.org.whatsapp,
@@ -71,10 +76,23 @@ router.put('/:torId', ...soloOrganizador, esDeMiOrganizacion, async (req, res) =
     const { error, datos } = manager.sanitize(req.body, { parcial: true });
     if (error) return res.status(400).json({ error });
 
-    // El estado solo avanza (abierto/proximamente -> en curso -> finalizado). Volver atras permitiria,
-    // por ejemplo, cambiar las reglas de pago de un torneo que ya empezo y despues ponerlo de nuevo "en curso"
-    if (datos.estado !== undefined && ETAPA[datos.estado] < ETAPA[req.tor.estado]) {
-        return res.status(400).json({ error: 'Un torneo que ya empezó o terminó no puede volver a un estado anterior' });
+    // El estado no se edita acá (sanitize lo rechaza): va por PUT /torneos/:id/estado
+
+    // Inicio, cierre de inscripción y precio por fecha: se pueden cambiar mientras no haya fechas creadas ni haya
+    // empezado (las fechas ya se armaron con esos datos). Juntos tienen que seguir siendo coherentes
+    const cambia = (c) => datos[c] !== undefined && datos[c] !== req.tor[c];
+    if (['fechaInicio', 'cierreInscripcion', 'precioFecha'].some(cambia)) {
+        if (EMPEZADO.includes(req.tor.estado)) return res.status(400).json({ error: 'El torneo ya empezó: el inicio, el cierre de inscripción y el precio por fecha no se pueden cambiar' });
+        if (await tieneFechas(req.tor.id)) return res.status(400).json({ error: 'Ya hay fechas creadas: el inicio, el cierre de inscripción y el precio por fecha no se pueden cambiar' });
+
+        // Si el cierre era el automático y no mandan otro, sigue siendo automático (se mueve con el inicio)
+        if (datos.cierreInscripcion === undefined && req.tor.cierreAutomatico) datos.cierreInscripcion = null;
+
+        const errC = errorCierre({ ...req.tor, ...datos }, {
+            // Con la inscripción abierta o sin abrir, el cierre no puede quedar en el pasado
+            exigirFuturo: ['inscripcion-abierta', 'proximamente'].includes(req.tor.estado),
+        });
+        if (errC) return res.status(400).json({ error: errC });
     }
 
     // La edad de cada jugador se calcula al dia de inicio: moverlo con equipos anotados podria dejar
@@ -84,9 +102,9 @@ router.put('/:torId', ...soloOrganizador, esDeMiOrganizacion, async (req, res) =
         return res.status(400).json({ error: 'La fecha de inicio no se puede cambiar porque el torneo tiene límite de edad y ya hay equipos inscriptos' });
     }
 
-    // Las reglas de pago quedan fijas cuando el torneo empieza, para no cambiarlas a mitad de camino
-    if (datos.reglasPago && ['en-curso', 'finalizado'].includes(req.tor.estado)) {
-        return res.status(400).json({ error: 'Las reglas de pago no se pueden cambiar una vez que el torneo empezó' });
+    // Las reglas de pago quedan fijas cuando se crea la primera fecha (cada fecha guarda una copia) o empieza el torneo
+    if (datos.reglasPago && (EMPEZADO.includes(req.tor.estado) || await tieneFechas(req.tor.id))) {
+        return res.status(400).json({ error: 'Las reglas de pago no se pueden cambiar una vez que hay fechas creadas o el torneo empezó' });
     }
 
     // Cambiar el limite de edad con equipos ya anotados dejaria afuera a alguno que se inscribio cumpliendo
@@ -100,6 +118,12 @@ router.put('/:torId', ...soloOrganizador, esDeMiOrganizacion, async (req, res) =
     }
 
     sendResult(res, await manager.editTor(req.params.torId, datos));
+});
+
+// Cambiar el estado: abrir, volver a "próximamente", cerrar o reabrir la inscripción, finalizar.
+// body: { estado }. Las reglas de cada cambio están en services/estadosService.js
+router.put('/:torId/estado', ...soloOrganizador, esDeMiOrganizacion, async (req, res) => {
+    sendResult(res, await cambiarEstado(req.tor, String(req.body?.estado ?? '')));
 });
 
 router.delete('/:torId', ...soloOrganizador, esDeMiOrganizacion, async (req, res) => {

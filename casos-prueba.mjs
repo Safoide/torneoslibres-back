@@ -1,5 +1,5 @@
 // Casos de prueba de pagos de fechas, penalizaciones, multas y amistosos express.
-// Crea cuentas de prueba (organizador + capitanes) y 12 torneos, cada uno armado para un caso.
+// Crea cuentas de prueba (organizador + capitanes) y 14 torneos, cada uno armado para un caso.
 // Se puede correr las veces que haga falta: borra los casos de la corrida anterior y los vuelve a crear.
 // No toca el resto de los datos. Antes de escribir hace una copia de la base en databases/backup-casos-<fecha>.db.
 //
@@ -105,16 +105,18 @@ const REGLAS = {
 };
 
 // Crea un torneo de la organizacion de casos. equipos: lista de claves de club ('alDia', 'moroso') o nombres de rivales
-const torneo = async (nombre, { estado = 'en-curso', reglas = REGLAS.multa50, equipos = [], equiposMax = 8, dia = dias(5) } = {}) => {
+// estado: cualquiera (el script lo fuerza; un organizador solo puede crear abiertos o "próximamente").
+// fechaInicio: por defecto hace 14 días si está en curso y en 10 días si no
+const torneo = async (nombre, { estado = 'en-curso', reglas = REGLAS.multa50, equipos = [], equiposMax = 8, dia = dias(5), precioFecha = 30000, fechaInicio } = {}) => {
     const { error, datos } = torneosManager.sanitize({
-        nombre, modalidad: 'f5', categoria: 'mixto', estado, zona: 'Palermo', localidad: 'CABA',
-        sede: 'Complejo de Pruebas', direccion: 'Av. Siempre Viva 742', fechaInicio: estado === 'en-curso' ? dias(-14) : dias(10),
+        nombre, modalidad: 'f5', categoria: 'mixto', zona: 'Palermo', localidad: 'CABA',
+        sede: 'Complejo de Pruebas', direccion: 'Av. Siempre Viva 742', fechaInicio: fechaInicio ?? (estado === 'en-curso' ? dias(-14) : dias(10)),
         diaJuego: diaDe(dia), horario: '18:00 a 23:00', formato: 'Liga a una rueda', equiposMax,
-        precioInscripcion: 60000, precioFecha: 30000, descripcion: 'Torneo de prueba: ' + nombre, reglasPago: reglas,
+        precioInscripcion: 60000, precioFecha, descripcion: 'Torneo de prueba: ' + nombre, reglasPago: reglas,
     });
     if (error) throw new Error(nombre + ': ' + error);
 
-    const tor = await torneosManager.addTor({ ...datos, whatsapp: '5491155550000', equiposInscriptos: equipos.length, organizador: org.nombre, organizadorId: org.id });
+    const tor = await torneosManager.addTor({ ...datos, estado, whatsapp: '5491155550000', equiposInscriptos: equipos.length, organizador: org.nombre, organizadorId: org.id });
 
     const creados = [];
     for (const e of equipos) {
@@ -246,6 +248,22 @@ const resumen = [];
     await vencer(f);
     await moverA(f, dias(-2));
     resumen.push([tor.nombre, 'Organizador: la fecha 1 ya se JUGÓ y faltan cargar los RESULTADOS (botón "Cargar resultados" en el fixture). Un partido es W.O. y no se carga.']);
+}
+
+// 13. Inscripción cerrada (el organizador la cerró antes del cierre): todavía no empezó y falta crear la fecha 1.
+//     Empieza en 5 días; el día de inicio pasa solo a "en curso"
+{
+    const { tor } = await torneo('Casos 13 · Inscripción cerrada', { estado: 'inscripcion-cerrada', fechaInicio: dias(5), equipos: ['alDia', RIVALES[2], RIVALES[4], RIVALES[6]] });
+    resumen.push([tor.nombre, `Organizador: la inscripción está CERRADA y el torneo empieza el ${tor.fechaInicio}. Creá la fecha 1 desde el fixture; el día de inicio arranca solo.`]);
+}
+
+// 14. Sin cobro por fecha (todo se paga con la inscripción): la fecha no tiene pago ni vencimiento
+{
+    const { tor } = await torneo('Casos 14 · Sin cobro por fecha', { precioFecha: 0, equipos: ['alDia', RIVALES[1], RIVALES[3], RIVALES[7]] });
+    // Sin cobro no hace falta la anticipacion de 3 dias: se crea directo para pasado mañana
+    const f = await fechasManager.crear(await torneosManager.getTorneoById(tor.id), { dia: dias(2), inicio: '18:00', fin: '23:00', canchas: 2 });
+    if (f.error) throw new Error(tor.nombre + ': ' + f.error);
+    resumen.push([tor.nombre, 'Precio por fecha $0: Al Día ve su próxima fecha SIN pago (ni W.O. ni multa). Las fechas sin cobro se pueden crear con menos anticipación.']);
 }
 
 // 9. Inscripción abierta: para inscribirse (Al Día puede; Moroso está bloqueado por la multa; Incompletos no tiene jugadores)

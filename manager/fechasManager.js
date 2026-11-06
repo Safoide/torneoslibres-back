@@ -3,23 +3,17 @@ import { q, tx, siguienteId } from '../db/index.js';
 import { aFila, deFila, deFilas } from '../db/filas.js';
 import { rondasDe, recalcularTabla } from '../services/fixtureService.js';
 import { cobrar } from '../services/pagosService.js';
-import { reglasDe } from './torneosManager.js';
+import { reglasDe, cobraPorFecha, hoyAR, sumarDias, ANTICIPACION_DIAS } from './torneosManager.js';
 import { equiposManager, partidosManager, torneosManager, amistososManager, multasManager } from './instances.js';
 
+export { ANTICIPACION_DIAS }; // las fechas con cobro se publican con al menos 3 dias de anticipacion
 const DURACION = { f5: 40, f7: 50, f8: 60, f11: 90 }; // minutos por partido
-export const ANTICIPACION_DIAS = 3; // las fechas se publican con al menos 3 dias de anticipacion
 const HORA_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 const AR = '-03:00'; // Argentina no usa horario de verano
 
 const aMs = (dia, hhmm) => new Date(`${dia}T${hhmm}:00${AR}`).getTime();
 // ms -> "2026-11-07T16:00:00-03:00"
 const aIso = (ms) => new Date(ms - 3 * 3600e3).toISOString().slice(0, 19) + AR;
-const hoyAR = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }).format(new Date());
-const sumarDias = (iso, dias) => {
-    const d = new Date(`${iso}T12:00:00Z`);
-    d.setUTCDate(d.getUTCDate() + dias);
-    return d.toISOString().slice(0, 10);
-};
 // Los equipos pagan su parte hasta las 23:59 del dia anterior al partido (hora de Argentina)
 export const vencimientoPago = (dia) => `${sumarDias(dia, -1)}T23:59:59${AR}`;
 
@@ -106,21 +100,40 @@ class FechasManager {
         return fila ? (await this.armar([fila]))[0] : null;
     }
 
+    // Primer dia permitido para una fecha nueva: con cobro, 3 dias de anticipacion (para que paguen);
+    // sin cobro, desde hoy. Nunca antes del inicio del torneo
+    minimoDia(tor) {
+        const porAnticipacion = cobraPorFecha(tor) ? sumarDias(hoyAR(), ANTICIPACION_DIAS) : hoyAR();
+        return porAnticipacion > tor.fechaInicio ? porAnticipacion : tor.fechaInicio;
+    }
+
     async crear(tor, data = {}) {
-        if (tor.estado !== 'en-curso') return { error: 'Solo se pueden crear fechas en torneos en curso. Primero pasá el torneo a "En curso".' };
+        // Las fechas se arman con la lista de equipos cerrada: desde que cierra la inscripcion (antes del inicio)
+        if (tor.estado === 'finalizado') return { error: 'El torneo ya terminó' };
+        if (tor.estado !== 'inscripcion-cerrada' && tor.estado !== 'en-curso') {
+            return { error: 'Las fechas se crean cuando cierra la inscripción: así el fixture se arma con todos los equipos' };
+        }
 
         const dia = String(data.dia ?? '').trim();
         const inicio = String(data.inicio ?? '').trim();
         const fin = String(data.fin ?? '').trim();
         const canchas = Number(data.canchas ?? 2);
+        const conCobro = cobraPorFecha(tor);
 
         const d = new Date(`${dia}T00:00:00Z`);
         if (!/^\d{4}-\d{2}-\d{2}$/.test(dia) || Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== dia) return { error: 'El día no es válido' };
-        const minimo = sumarDias(hoyAR(), ANTICIPACION_DIAS);
-        if (dia < minimo) return { error: `Las fechas se publican con al menos ${ANTICIPACION_DIAS} días de anticipación, para que los equipos puedan pagar a tiempo. Elegí un día desde el ${minimo}.` };
+        if (dia < tor.fechaInicio) return { error: `El torneo empieza el ${tor.fechaInicio}: las fechas tienen que ser desde ese día` };
+        const minimo = this.minimoDia(tor);
+        if (dia < minimo) {
+            return { error: conCobro
+                ? `Las fechas con cobro se publican con al menos ${ANTICIPACION_DIAS} días de anticipación, para que los equipos puedan pagar a tiempo. Elegí un día desde el ${minimo}.`
+                : `Elegí un día desde el ${minimo}.` };
+        }
         if (!HORA_RE.test(inicio) || !HORA_RE.test(fin)) return { error: 'Elegí un horario de inicio y de finalización válidos' };
         if (inicio === fin) return { error: 'El horario de inicio y de finalización no pueden ser iguales' };
         if (!Number.isInteger(canchas) || canchas < 1 || canchas > 8) return { error: 'La cantidad de canchas debe ser entre 1 y 8' };
+        // Sin cobro se puede crear para hoy, pero no una fecha que ya empezó
+        if (this.rango({ dia, inicio, fin }).ini <= Date.now()) return { error: 'Ese horario ya pasó: elegí uno que todavía no haya empezado' };
 
         // Todo junto en una transaccion: los partidos, la fecha y los pagos se crean todos o ninguno
         return tx(async () => {
@@ -148,10 +161,11 @@ class FechasManager {
             const fecha = {
                 id: formatId('FECHA', await siguienteId('fechas', 'FECHA')),
                 tor_id: tor.id, numero, dia, inicio, fin, canchas, precio: tor.precioFecha, creada: new Date().toISOString(),
-                // Cada equipo que juega paga su parte antes del vencimiento; el que tiene fecha libre no paga.
-                // Si no paga a tiempo pierde por W.O. (ver services/vencimientosService.js)
-                cobro: true,
-                vencePago: vencimientoPago(dia),
+                // Con precio por fecha, cada equipo que juega paga su parte antes del vencimiento (el que tiene fecha
+                // libre no paga) y si no paga a tiempo pierde por W.O. (ver services/vencimientosService.js).
+                // Con precio $0 (el torneo se paga todo con la inscripcion) la fecha no tiene cobro ni vencimiento
+                cobro: conCobro,
+                vencePago: conCobro ? vencimientoPago(dia) : null,
                 // Copia de las reglas del torneo al crear la fecha: penalizacion (W.O. + multa) y amistosos express
                 reglas: reglasDe(tor),
                 pagosProcesados: false,
@@ -164,9 +178,11 @@ class FechasManager {
             })));
 
             await q().insertInto('fechas').values(aFila('fechas', fecha)).execute();
-            await q().insertInto('fecha_pagos')
-                .values(partidos.flat().map((eq, orden) => ({ fechaId: fecha.id, equipoId: eq.id, orden, estado: 'pendiente', monto: tor.precioFecha })))
-                .execute();
+            if (conCobro) {
+                await q().insertInto('fecha_pagos')
+                    .values(partidos.flat().map((eq, orden) => ({ fechaId: fecha.id, equipoId: eq.id, orden, estado: 'pendiente', monto: tor.precioFecha })))
+                    .execute();
+            }
 
             return this.publico(await this.getById(fecha.id));
         });
@@ -284,7 +300,8 @@ class FechasManager {
 
         for (const eq of await equiposManager.getByClub(clubId)) {
             const tor = await torneosManager.getTorneoById(eq.tor_id);
-            if (tor.error || tor.estado !== 'en-curso') continue;
+            // Desde que cierra la inscripcion ya puede haber fechas (la 1 se crea antes del inicio)
+            if (tor.error || (tor.estado !== 'en-curso' && tor.estado !== 'inscripcion-cerrada')) continue;
 
             const f = (await this.armar(await q().selectFrom('fechas').selectAll().where('tor_id', '=', tor.id).orderBy('numero').execute()))
                 .find(x => this.rango(x).fin > ahora);

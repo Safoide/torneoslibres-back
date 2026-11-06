@@ -3,7 +3,12 @@ import { q, tx } from '../db/index.js';
 import { aFila, deFila, deFilas } from '../db/filas.js';
 import { torneosManager, equiposManager, clubesManager, multasManager } from './instances.js';
 import { cobrar } from '../services/pagosService.js';
-import { fueraDeEdad, errorEdad } from './torneosManager.js';
+import { fueraDeEdad, errorEdad, inscripcionAbierta, cierreDe } from './torneosManager.js';
+
+// Por que no se puede inscribir (el estado o la fecha de cierre, aunque el cierre automatico todavia no haya corrido)
+const errorInscripcion = (tor) => tor.estado === 'inscripcion-abierta'
+    ? { error: `Las inscripciones cerraron el ${cierreDe(tor)}` }
+    : { error: 'El torneo no tiene la inscripción abierta' };
 
 const MIN_JUGADORES = { f5: 5, f7: 7, f8: 8, f11: 11 };
 const AGOTADO = { error: 'Se agotaron los cupos o cerró la inscripción' };
@@ -42,7 +47,7 @@ class InscripcionesManager {
         const tor = await torneosManager.getTorneoById(torId);
         if (tor.error) return tor;
 
-        if (tor.estado !== 'inscripcion-abierta') return { error: 'El torneo no tiene la inscripción abierta' };
+        if (!inscripcionAbierta(tor)) return errorInscripcion(tor);
         if (tor.equiposInscriptos >= tor.equiposMax) return { error: 'No quedan cupos disponibles' };
 
         const club = await clubesManager.getRawByOwner(ownerId);
@@ -101,7 +106,9 @@ class InscripcionesManager {
             const tor = await torneosManager.getTorneoById(insc.torId);
             if (tor.error) return tor;
 
-            if (tor.estado !== 'inscripcion-abierta' || tor.equiposInscriptos >= tor.equiposMax) return AGOTADO;
+            // Si empezo a pagar antes del cierre se le respeta: el cierre automatico espera a que termine (ver estadosService)
+            if (!inscripcionAbierta(tor)) return errorInscripcion(tor);
+            if (tor.equiposInscriptos >= tor.equiposMax) return AGOTADO;
 
             const club = await clubesManager.getRawByOwner(insc.ownerId);
             if (!club || club.id !== insc.clubId) return { error: 'No encontramos tu equipo' };

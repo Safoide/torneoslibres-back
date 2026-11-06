@@ -1,10 +1,63 @@
 import { errorMessages, formatId } from '../assets.js';
 import { q, tx, porId, siguienteId } from '../db/index.js';
-import { aFila, deFila, deFilas } from '../db/filas.js';
+import { aFila, deFila } from '../db/filas.js';
 
 export const MODALIDADES = ['f5', 'f7', 'f8', 'f11'];
 export const CATEGORIAS = ['masculino', 'femenino', 'mixto'];
-export const ESTADOS = ['inscripcion-abierta', 'proximamente', 'en-curso', 'finalizado'];
+// proximamente: todavía no abrió la inscripción | inscripcion-abierta | inscripcion-cerrada: equipos fijos,
+// se crean las fechas | en-curso: desde el día de inicio | finalizado. Los cambios están en services/estadosService.js
+export const ESTADOS = ['inscripcion-abierta', 'proximamente', 'inscripcion-cerrada', 'en-curso', 'finalizado'];
+export const ESTADOS_INICIALES = ['inscripcion-abierta', 'proximamente']; // con los que se puede crear un torneo
+
+// Las fechas con cobro se crean con al menos 3 días de anticipación (para que los equipos paguen a tiempo).
+// Sin cobro por fecha alcanza con que el partido no haya empezado.
+export const ANTICIPACION_DIAS = 3;
+export const cobraPorFecha = (tor) => Number(tor?.precioFecha ?? 0) > 0;
+
+const AR = '-03:00'; // Argentina no usa horario de verano
+export const sumarDias = (iso, dias) => {
+    const d = new Date(`${iso}T12:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + dias);
+    return d.toISOString().slice(0, 10);
+};
+
+// Último día en que pueden cerrar las inscripciones (y el que se usa si el organizador no elige otro):
+//  - con cobro por fecha: 4 días antes del inicio, así quedan 3 días completos para crear la fecha 1 y que la paguen
+//  - sin cobro por fecha: el día anterior al inicio
+export const cierreMaximo = (fechaInicio, precioFecha) =>
+    sumarDias(fechaInicio, Number(precioFecha ?? 0) > 0 ? -(ANTICIPACION_DIAS + 1) : -1);
+
+// Cierre de un torneo: el que eligió el organizador o el de siempre (torneos anteriores a este campo)
+export const cierreDe = (tor) => tor.cierreInscripcion || cierreMaximo(tor.fechaInicio, tor.precioFecha);
+// Las inscripciones se aceptan hasta las 23:59:59 del día de cierre (hora de Argentina)
+export const finCierre = (tor) => Date.parse(`${cierreDe(tor)}T23:59:59${AR}`);
+// ¿Se puede inscribir alguien ahora? (estado + fecha: no depende de que el cierre automático ya haya corrido)
+export const inscripcionAbierta = (tor, ahora = Date.now()) => tor.estado === 'inscripcion-abierta' && ahora <= finCierre(tor);
+
+// Controla el cierre contra el inicio y el precio por fecha. exigirFuturo: el cierre no puede haber pasado
+// (al crear el torneo o al cambiar sus fechas antes de que cierre). Devuelve un mensaje de error o null.
+export const errorCierre = (tor, { exigirFuturo = false } = {}) => {
+    const cierre = cierreDe(tor);
+    const max = cierreMaximo(tor.fechaInicio, tor.precioFecha);
+    if (cierre > max) {
+        return cobraPorFecha(tor)
+            ? `Como el torneo cobra por fecha, las inscripciones tienen que cerrar como tarde el ${max}: así quedan ${ANTICIPACION_DIAS} días para crear la fecha 1 y que los equipos la paguen`
+            : `Las inscripciones tienen que cerrar como tarde el día anterior al inicio (${max})`;
+    }
+    if (exigirFuturo && cierre < hoyAR()) {
+        return cobraPorFecha(tor)
+            ? `El cierre de inscripción quedaría en el pasado (${cierre}). Con cobro por fecha el torneo tiene que empezar al menos ${ANTICIPACION_DIAS + 1} días después de hoy`
+            : `El cierre de inscripción quedaría en el pasado (${cierre}). Elegí una fecha de inicio posterior`;
+    }
+    return null;
+};
+
+// Fila -> torneo, con el cierre siempre calculado. cierreAutomatico: el organizador no eligió uno
+// (sigue a la fecha de inicio y al precio por fecha si cambian)
+const armar = (fila) => {
+    const tor = deFila('torneos', fila);
+    return { ...tor, cierreInscripcion: cierreDe(tor), cierreAutomatico: !tor.cierreInscripcion };
+};
 
 const TEXTOS = { nombre: 80, zona: 40, localidad: 40, sede: 80, direccion: 120, horario: 40, formato: 80, descripcion: 500 };
 const NUMEROS = { equiposMax: [2, 64], precioInscripcion: [0, 10000000], precioFecha: [0, 10000000] };
@@ -118,11 +171,11 @@ class TorneosManager {
     // GET
 
     async getTorneos() {
-        return deFilas('torneos', await porId(q().selectFrom('torneos').selectAll()).execute());
+        return (await porId(q().selectFrom('torneos').selectAll()).execute()).map(armar);
     }
 
     async getByOrganizador(orgId) {
-        return deFilas('torneos', await porId(q().selectFrom('torneos').selectAll().where('organizadorId', '=', orgId)).execute());
+        return (await porId(q().selectFrom('torneos').selectAll().where('organizadorId', '=', orgId)).execute()).map(armar);
     }
 
     // Busqueda con filtros. Todos opcionales y combinables:
@@ -183,7 +236,7 @@ class TorneosManager {
     async getTorneoById(torId) {
         const fila = await q().selectFrom('torneos').selectAll().where('id', '=', String(torId ?? '')).executeTakeFirst();
 
-        return fila ? deFila('torneos', fila) : { error: errorMessages.tor_wrongId };
+        return fila ? armar(fila) : { error: errorMessages.tor_wrongId };
     }
 
     // POST
@@ -214,12 +267,13 @@ class TorneosManager {
         return this.getTorneoById(torId);
     }
 
-    // Suma un equipo inscripto solo si queda cupo (en una sola consulta: dos pagos a la vez no pueden pasarse del cupo).
-    // Devuelve true si se sumo.
+    // Suma un equipo inscripto solo si queda cupo y la inscripcion sigue abierta (en una sola consulta: dos pagos
+    // a la vez no pueden pasarse del cupo, y si el organizador la cerro mientras se cobraba no entra). true si se sumo.
     async sumarInscripto(torId) {
         const r = await q().updateTable('torneos')
             .set((eb) => ({ equiposInscriptos: eb('equiposInscriptos', '+', 1) }))
             .where('id', '=', torId)
+            .where('estado', '=', 'inscripcion-abierta')
             .where((eb) => eb('equiposInscriptos', '<', eb.ref('equiposMax')))
             .executeTakeFirst();
         return Number(r.numUpdatedRows) === 1;
@@ -279,10 +333,25 @@ class TorneosManager {
             datos.categoria = data.categoria;
         } else if (!parcial) datos.categoria = 'mixto';
 
+        // El estado se elige solo al crear (abierta o próximamente). Después cambia con PUT /torneos/:id/estado
+        // o solo (services/estadosService.js), nunca editando el torneo
         if (data.estado !== undefined) {
-            if (!ESTADOS.includes(data.estado)) return { error: `estado debe ser ${ESTADOS.join(', ')}` };
+            if (parcial) return { error: 'El estado se cambia con los botones de estado del torneo' };
+            if (!ESTADOS_INICIALES.includes(data.estado)) return { error: 'Un torneo nuevo empieza con la inscripción abierta o como "próximamente"' };
             datos.estado = data.estado;
         } else if (!parcial) datos.estado = 'inscripcion-abierta';
+
+        // Último día de inscripción (YYYY-MM-DD). null o vacío = el de siempre (ver cierreMaximo)
+        if (data.cierreInscripcion !== undefined) {
+            const c = data.cierreInscripcion === null ? '' : String(data.cierreInscripcion).trim();
+            if (c) {
+                const d = new Date(c + 'T00:00:00Z');
+                if (!/^\d{4}-\d{2}-\d{2}$/.test(c) || Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== c) {
+                    return { error: 'La fecha de cierre de inscripción no es válida' };
+                }
+            }
+            datos.cierreInscripcion = c || null;
+        }
 
         if (data.diaJuego !== undefined) {
             const dia = DIAS.find(x => normalize(x) === normalize(data.diaJuego));
