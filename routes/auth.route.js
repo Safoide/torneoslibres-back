@@ -76,6 +76,16 @@ router.post('/logout-all', requireAuth, async (req, res) => {
     res.status(result.error ? 400 : 200).json(result);
 });
 
+// Confirmar con Google que es el dueño (cuenta sin contraseña), antes de eliminarla: así el front avisa en el momento
+// si eligió otra cuenta de Google. body: { credential }. No cambia nada; eliminar vuelve a verificar
+router.post('/confirmar-google', requireAuth, limiteGoogle, async (req, res) => {
+    const cuenta = await manager.getRaw(req.userId);
+    if (cuenta?.passwordHash) return res.status(400).json({ error: 'Tu cuenta tiene contraseña: confirmá con ella' });
+
+    const check = await manager.confirmarIdentidad(req.userId, { credential: req.body?.credential });
+    res.status(check.error ? 400 : 200).json(check);
+});
+
 // Eliminar la cuenta. Pide la contraseña y borra tambien lo que depende de ella:
 // el equipo del capitan o la organizacion del organizador (con sus torneos).
 // Si eso no se puede (equipo anotado en un torneo sin terminar, organizacion con equipos inscriptos), no se borra nada.

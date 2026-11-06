@@ -139,8 +139,8 @@ class UsuariosManager {
         if (!credential) return { error: 'Confirmá con tu cuenta de Google' };
         const g = await verificarGoogle(credential);
         if (g.error) return { error: g.error };
-        if (g.googleId !== usuario.googleId) return { error: 'Esa no es la cuenta de Google vinculada a tu cuenta' };
-        return { ok: true };
+        if (g.googleId !== usuario.googleId) return { error: `Elegiste ${g.email}, que no es la cuenta de Google vinculada a tu cuenta. Probá de nuevo con la correcta.` };
+        return { ok: true, email: g.email };
     }
 
     async eliminar(id) {
