@@ -3,7 +3,7 @@ import { aFila, deFilas, TABLAS } from './filas.js';
 
 // Pasa todos los datos entre la base y el formato de los JSON de antes
 // ({ torneos: [...], equipos: [...], clubes: [{ ..., jugadores: [...] }], fechas: [{ ..., pagos: {...} }], ... }).
-// Lo usan el importador de los JSON viejos (scripts/importar-json.mjs) y los scripts de datos de prueba.
+// Lo usan los scripts de datos de prueba (seed.mjs).
 
 export const COLECCIONES = ['usuarios', 'organizadores', 'clubes', 'torneos', 'equipos', 'jugadores', 'fechas', 'partidos', 'inscripciones', 'multas', 'amistosos'];
 

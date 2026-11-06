@@ -21,14 +21,10 @@
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-# datos personales / credenciales
-databases/usuarios.json
-databases/inscripciones.json
-
-databases/clubes.json
+# logos subidos
 uploads/
 
-# backups que generan seed.mjs y casos-prueba.mjs (tienen datos personales y hashes de contraseñas)
+# backups viejos (JSON)
 databases/backup-*/
 
 # base SQLite (datos de prueba en local: tiene hashes de contraseñas y datos personales)
