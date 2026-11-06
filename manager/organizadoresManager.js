@@ -1,51 +1,50 @@
-import fs from 'fs';
 import { formatId } from '../assets.js';
 import { logoValido } from '../config.js';
+import { q, tx, esDuplicado, porId, siguienteId } from '../db/index.js';
 
 const HANDLE_RE = /^[A-Za-z0-9._]{1,30}$/;
+const NOMBRE_REPETIDO = { error: 'Ya existe una organización con ese nombre' };
+const NO_EXISTE = { error: 'No se encontro un organizador con el id especificado' };
 
 class OrganizadoresManager {
-    constructor(path, torneosManager) {
-        this.path = path;
-        this.torneosManager = torneosManager;
-        this.organizadores = JSON.parse(fs.readFileSync(path));
-    }
-
-    save() {
-        return fs.promises.writeFile(this.path, JSON.stringify(this.organizadores, null, 4));
-    }
-
-    torneosDe(orgId) {
-        return this.torneosManager.getTorneos().filter(t => t.organizadorId === orgId);
+    // Cantidad de torneos de cada organizacion: { orgId: n }
+    async contarTorneos(orgIds) {
+        if (!orgIds.length) return {};
+        const filas = await q().selectFrom('torneos')
+            .select(['organizadorId', (eb) => eb.fn.countAll().as('n')])
+            .where('organizadorId', 'in', orgIds).groupBy('organizadorId').execute();
+        return Object.fromEntries(filas.map((f) => [f.organizadorId, Number(f.n)]));
     }
 
     // No exponemos el ownerId y agregamos la cantidad de torneos
-    publico({ ownerId, ...org }) {
-        return { ...org, torneos: this.torneosDe(org.id).length };
+    publico({ ownerId, ...org }, torneos = 0) {
+        return { ...org, torneos };
     }
 
-    nextId() {
-        const max = this.organizadores.reduce((acc, o) => Math.max(acc, parseInt(o.id.split('-')[1], 10) || 0), 0);
-        return formatId('ORG', max + 1);
+    async conTorneos(org) {
+        if (!org) return null;
+        return this.publico(org, (await this.contarTorneos([org.id]))[org.id] ?? 0);
     }
 
-    getAll() {
-        return this.organizadores.map(o => this.publico(o));
+    async getAll() {
+        const orgs = await porId(q().selectFrom('organizadores').selectAll()).execute();
+        const n = await this.contarTorneos(orgs.map((o) => o.id));
+        return orgs.map((o) => this.publico(o, n[o.id] ?? 0));
     }
 
-    getById(id) {
-        const org = this.organizadores.find(o => o.id === id);
-        return org ? this.publico(org) : { error: 'No se encontro un organizador con el id especificado' };
+    async getById(id) {
+        const org = await q().selectFrom('organizadores').selectAll().where('id', '=', String(id ?? '')).executeTakeFirst();
+        return org ? this.conTorneos(org) : NO_EXISTE;
     }
 
     // La organizacion del usuario (o null si no tiene)
-    miOrganizacion(ownerId) {
-        const org = this.organizadores.find(o => o.ownerId === ownerId);
-        return org ? this.publico(org) : null;
+    async miOrganizacion(ownerId) {
+        const org = await q().selectFrom('organizadores').selectAll().where('ownerId', '=', String(ownerId ?? '')).executeTakeFirst();
+        return this.conTorneos(org);
     }
 
     // Valida y limpia los campos que puede mandar el usuario
-    limpiar(data = {}, idActual = null) {
+    async limpiar(data = {}, idActual = null) {
         const nombre = String(data.nombre ?? '').trim();
         const zona = String(data.zona ?? '').trim();
         const descripcion = String(data.descripcion ?? '').trim();
@@ -60,60 +59,67 @@ class OrganizadoresManager {
         if (whatsapp && (whatsapp.length < 10 || whatsapp.length > 15)) return { error: 'El WhatsApp debe tener entre 10 y 15 dígitos, con código de país' };
         if (logo && !logoValido(logo)) return { error: 'El logo no es válido: subí la imagen de nuevo' };
 
-        if (this.organizadores.some(o => o.id !== idActual && o.nombre.toLowerCase() === nombre.toLowerCase())) {
-            return { error: 'Ya existe una organización con ese nombre' };
-        }
+        // Chequeo amable; la garantia la da el indice unico de la base (lower(nombre))
+        const otra = await q().selectFrom('organizadores').select('id')
+            .where((eb) => eb(eb.fn('lower', ['nombre']), '=', nombre.toLowerCase()))
+            .where('id', '!=', idActual ?? '').executeTakeFirst();
+        if (otra) return NOMBRE_REPETIDO;
 
         return { datos: { nombre, zona, descripcion, instagram, whatsapp, logo } };
     }
 
     async crear(ownerId, data) {
-        if (this.organizadores.some(o => o.ownerId === ownerId)) {
-            return { error: 'Ya tenés una organización. Solo se puede tener una por cuenta.' };
-        }
+        if (await this.miOrganizacion(ownerId)) return { error: 'Ya tenés una organización. Solo se puede tener una por cuenta.' };
 
-        const { error, datos } = this.limpiar(data);
+        const { error, datos } = await this.limpiar(data);
         if (error) return { error };
 
-        const org = { id: this.nextId(), ...datos, ownerId, creada: new Date().toISOString() };
-
-        this.organizadores.push(org);
-        await this.save();
-
-        return this.publico(org);
+        try {
+            const org = await tx(async () => {
+                const nueva = { id: formatId('ORG', await siguienteId('organizadores', 'ORG')), ...datos, ownerId, creada: new Date().toISOString() };
+                await q().insertInto('organizadores').values(nueva).execute();
+                return nueva;
+            });
+            return this.publico(org, 0);
+        } catch (err) {
+            if (esDuplicado(err)) return String(err.message).includes('ownerId') ? { error: 'Ya tenés una organización. Solo se puede tener una por cuenta.' } : NOMBRE_REPETIDO;
+            throw err;
+        }
     }
 
     async editar(orgId, data) {
-        const org = this.organizadores.find(o => o.id === orgId);
-        if (!org) return { error: 'No se encontro un organizador con el id especificado' };
+        const org = await q().selectFrom('organizadores').select('id').where('id', '=', orgId).executeTakeFirst();
+        if (!org) return NO_EXISTE;
 
-        const { error, datos } = this.limpiar(data, orgId);
+        const { error, datos } = await this.limpiar(data, orgId);
         if (error) return { error };
 
-        Object.assign(org, datos);
-        await this.save();
-
-        // El nombre se repite en cada torneo, lo mantenemos al dia
-        for (const tor of this.torneosDe(orgId)) {
-            await this.torneosManager.editTor(tor.id, { organizador: datos.nombre });
+        try {
+            await tx(async () => {
+                await q().updateTable('organizadores').set(datos).where('id', '=', orgId).execute();
+                // El nombre se repite en cada torneo, lo mantenemos al dia
+                await q().updateTable('torneos').set({ organizador: datos.nombre }).where('organizadorId', '=', orgId).execute();
+            });
+        } catch (err) {
+            if (esDuplicado(err)) return NOMBRE_REPETIDO;
+            throw err;
         }
 
-        return this.publico(org);
+        return this.getById(orgId);
     }
 
     async eliminar(orgId) {
-        if (!this.organizadores.some(o => o.id === orgId)) return { error: 'No se encontro un organizador con el id especificado' };
+        const org = await q().selectFrom('organizadores').select('id').where('id', '=', orgId).executeTakeFirst();
+        if (!org) return NO_EXISTE;
 
-        const torneos = this.torneosDe(orgId);
+        const conEquipos = await q().selectFrom('torneos').select('id')
+            .where('organizadorId', '=', orgId).where('equiposInscriptos', '>', 0).executeTakeFirst();
+        if (conEquipos) return { error: 'No podés eliminar la organización: tiene torneos con equipos inscriptos.' };
 
-        if (torneos.some(t => t.equiposInscriptos > 0)) {
-            return { error: 'No podés eliminar la organización: tiene torneos con equipos inscriptos.' };
-        }
-
-        for (const tor of torneos) await this.torneosManager.deleteTor(tor.id);
-
-        this.organizadores = this.organizadores.filter(o => o.id !== orgId);
-        await this.save();
+        await tx(async () => {
+            await q().deleteFrom('torneos').where('organizadorId', '=', orgId).execute();
+            await q().deleteFrom('organizadores').where('id', '=', orgId).execute();
+        });
 
         return { ok: true };
     }

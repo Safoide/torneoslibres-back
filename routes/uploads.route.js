@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router } from '../middleware/router.js';
 import multer from 'multer';
 import fs from 'fs';
 import path from 'path';
@@ -34,6 +34,6 @@ router.post('/logo', requireAuth, limiteUploads, (req, res) => {
             res.status(500).json({ error: 'No se pudo guardar la imagen' });
         }
     });
-})
+});
 
 export default router;

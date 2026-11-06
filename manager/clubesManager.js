@@ -1,7 +1,8 @@
-import fs from 'fs';
 import { randomUUID } from 'crypto';
 import { logoValido } from '../config.js';
+import { q, tx, esDuplicado } from '../db/index.js';
 import { fueraDeEdad, textoLimiteEdad, edadEn } from './torneosManager.js';
+import { torneosManager, equiposManager } from './instances.js';
 
 // YYYY-MM-DD y que sea una fecha real (no 2001-02-30)
 const fechaValida = (f) => {
@@ -11,21 +12,24 @@ const fechaValida = (f) => {
 };
 
 const MAX_JUGADORES = 30;
+const NOMBRE_REPETIDO = { error: 'Ya existe un equipo con ese nombre' };
+const YA_TIENE = { error: 'Ya tenés un equipo. Solo se puede tener uno por cuenta.' };
 
 class ClubesManager {
-    constructor(path, equiposManager, torneosManager) {
-        this.path = path;
-        this.equiposManager = equiposManager;
-        this.torneosManager = torneosManager;
-        this.clubes = JSON.parse(fs.readFileSync(path));
+    async plantel(clubId) {
+        return q().selectFrom('club_jugadores').select(['nombre', 'apellido', 'dni', 'nacimiento'])
+            .where('clubId', '=', clubId).orderBy('orden').execute();
     }
 
-    save() {
-        return fs.promises.writeFile(this.path, JSON.stringify(this.clubes, null, 4));
+    // El club con su plantel (incluye el ownerId: uso interno)
+    async getRawByOwner(ownerId) {
+        const club = await q().selectFrom('clubes').selectAll().where('ownerId', '=', String(ownerId ?? '')).executeTakeFirst();
+        return club ? { ...club, jugadores: await this.plantel(club.id) } : null;
     }
 
-    getRawByOwner(ownerId) {
-        return this.clubes.find(c => c.ownerId === ownerId) || null;
+    async getRawById(id) {
+        const club = await q().selectFrom('clubes').selectAll().where('id', '=', String(id ?? '')).executeTakeFirst();
+        return club ? { ...club, jugadores: await this.plantel(club.id) } : null;
     }
 
     // Lo que ve el capitan (todo menos el ownerId)
@@ -33,13 +37,13 @@ class ClubesManager {
         return club;
     }
 
-    miEquipo(ownerId) {
-        const club = this.getRawByOwner(ownerId);
+    async miEquipo(ownerId) {
+        const club = await this.getRawByOwner(ownerId);
         return club ? this.privado(club) : null;
     }
 
     // Valida y limpia lo que manda el usuario (nunca se copia el body entero)
-    limpiar(data = {}, idActual = null) {
+    async limpiar(data = {}, idActual = null) {
         const nombre = String(data.nombre ?? '').trim();
         const whatsapp = String(data.whatsapp ?? '').replace(/\D/g, '');
         const logo = String(data.logo ?? '').trim();
@@ -71,81 +75,102 @@ class ClubesManager {
             jugadores.push({ nombre: nombreJ, apellido, dni, nacimiento });
         }
 
-        if (this.clubes.some(c => c.id !== idActual && c.nombre.toLowerCase() === nombre.toLowerCase())) {
-            return { error: 'Ya existe un equipo con ese nombre' };
-        }
+        // Chequeo amable; la garantia la da el indice unico de la base (lower(nombre))
+        const otro = await q().selectFrom('clubes').select('id')
+            .where((eb) => eb(eb.fn('lower', ['nombre']), '=', nombre.toLowerCase()))
+            .where('id', '!=', idActual ?? '').executeTakeFirst();
+        if (otro) return NOMBRE_REPETIDO;
 
         return { datos: { nombre, logo, whatsapp, jugadores } };
     }
 
+    async guardarPlantel(clubId, jugadores) {
+        await q().deleteFrom('club_jugadores').where('clubId', '=', clubId).execute();
+        if (jugadores.length) {
+            await q().insertInto('club_jugadores').values(jugadores.map((j, orden) => ({ clubId, orden, ...j }))).execute();
+        }
+    }
+
     // Solo el WhatsApp del capitan (se edita tambien desde "Editar mis datos")
     async cambiarWhatsapp(clubId, valor) {
-        const club = this.clubes.find(c => c.id === clubId);
-        if (!club) return { error: 'No se encontro el equipo' };
-
         const whatsapp = String(valor ?? '').replace(/\D/g, '');
         if (whatsapp.length < 10 || whatsapp.length > 15) return { error: 'Ingresá tu WhatsApp con código de país (10 a 15 dígitos)' };
 
-        club.whatsapp = whatsapp;
-        await this.save();
+        const r = await q().updateTable('clubes').set({ whatsapp }).where('id', '=', clubId).executeTakeFirst();
+        if (!Number(r.numUpdatedRows)) return { error: 'No se encontro el equipo' };
 
-        return this.privado(club);
+        return this.privado(await this.getRawById(clubId));
     }
 
     async crear(ownerId, data) {
-        if (this.getRawByOwner(ownerId)) return { error: 'Ya tenés un equipo. Solo se puede tener uno por cuenta.' };
+        if (await q().selectFrom('clubes').select('id').where('ownerId', '=', ownerId).executeTakeFirst()) return YA_TIENE;
 
-        const { error, datos } = this.limpiar(data);
+        const { error, datos } = await this.limpiar(data);
         if (error) return { error };
 
-        const club = { id: `CLUB-${randomUUID().slice(0, 8)}`, ...datos, ownerId, creado: new Date().toISOString() };
+        const { jugadores, ...resto } = datos;
+        const club = { id: `CLUB-${randomUUID().slice(0, 8)}`, ...resto, ownerId, creado: new Date().toISOString() };
 
-        this.clubes.push(club);
-        await this.save();
+        try {
+            await tx(async () => {
+                await q().insertInto('clubes').values(club).execute();
+                await this.guardarPlantel(club.id, jugadores);
+            });
+        } catch (err) {
+            if (esDuplicado(err)) return String(err.message).includes('ownerId') ? YA_TIENE : NOMBRE_REPETIDO;
+            throw err;
+        }
 
-        return this.privado(club);
+        return this.privado({ ...club, jugadores });
     }
 
     async editar(clubId, data) {
-        const club = this.clubes.find(c => c.id === clubId);
-        if (!club) return { error: 'No se encontro el equipo' };
+        if (!await q().selectFrom('clubes').select('id').where('id', '=', clubId).executeTakeFirst()) return { error: 'No se encontro el equipo' };
 
-        const { error, datos } = this.limpiar(data, clubId);
+        const { error, datos } = await this.limpiar(data, clubId);
         if (error) return { error };
 
+        const inscripto = await equiposManager.getByClub(clubId);
+
         // Si esta anotado en un torneo con limite de edad que no termino, el plantel nuevo tiene que seguir cumpliendolo
-        for (const e of this.equiposManager.getEquipos().filter(e => e.club_id === clubId)) {
-            const tor = this.torneosManager.getTorneoById(e.tor_id);
+        for (const e of inscripto) {
+            const tor = await torneosManager.getTorneoById(e.tor_id);
             if (tor.error || tor.estado === 'finalizado' || !tor.limiteEdad) continue;
 
             const [j] = fueraDeEdad(datos.jugadores, tor);
             if (j) return { error: `${j.nombre} ${j.apellido} (${j.edad} al inicio) no cumple con el límite de edad de "${tor.nombre}" (${textoLimiteEdad(tor.limiteEdad)}), donde tu equipo está inscripto` };
         }
 
-        Object.assign(club, datos);
-        await this.save();
+        const { jugadores, ...resto } = datos;
 
-        // El nombre y el logo se copian en cada torneo donde esta inscripto: los mantenemos al dia
-        for (const e of this.equiposManager.getEquipos().filter(e => e.club_id === clubId)) {
-            await this.equiposManager.editTeam(e.id, { name: datos.nombre, logo: datos.logo });
+        try {
+            await tx(async () => {
+                await q().updateTable('clubes').set(resto).where('id', '=', clubId).execute();
+                await this.guardarPlantel(clubId, jugadores);
+                // El nombre y el logo se copian en cada torneo donde esta inscripto: los mantenemos al dia
+                await q().updateTable('equipos').set({ name: resto.nombre, logo: resto.logo }).where('club_id', '=', clubId).execute();
+            });
+        } catch (err) {
+            if (esDuplicado(err)) return NOMBRE_REPETIDO;
+            throw err;
         }
 
-        return this.privado(club);
+        return this.privado(await this.getRawById(clubId));
     }
 
     async eliminar(clubId) {
-        if (!this.clubes.some(c => c.id === clubId)) return { error: 'No se encontro el equipo' };
+        if (!await q().selectFrom('clubes').select('id').where('id', '=', clubId).executeTakeFirst()) return { error: 'No se encontro el equipo' };
 
-        const activo = this.equiposManager.getEquipos().some(e => {
-            if (e.club_id !== clubId) return false;
-            const tor = this.torneosManager.getTorneoById(e.tor_id);
-            return !tor.error && tor.estado !== 'finalizado';
+        for (const e of await equiposManager.getByClub(clubId)) {
+            const tor = await torneosManager.getTorneoById(e.tor_id);
+            if (!tor.error && tor.estado !== 'finalizado') return { error: 'No podés eliminar el equipo: está inscripto en un torneo que no terminó.' };
+        }
+
+        // El plantel se borra en cascada. Los equipos de torneos ya terminados quedan (son el historial de la tabla)
+        await tx(async () => {
+            await q().deleteFrom('club_jugadores').where('clubId', '=', clubId).execute();
+            await q().deleteFrom('clubes').where('id', '=', clubId).execute();
         });
-
-        if (activo) return { error: 'No podés eliminar el equipo: está inscripto en un torneo que no terminó.' };
-
-        this.clubes = this.clubes.filter(c => c.id !== clubId);
-        await this.save();
 
         return { ok: true };
     }

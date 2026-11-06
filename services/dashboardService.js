@@ -22,15 +22,25 @@ const equiposPorFecha = (n) => (n % 2 ? n - 1 : n);
 // Panel del organizador: numeros de todos los torneos de su organizacion.
 // La plata es la que corresponde segun los precios (los pagos son simulados): inscripcion por equipo
 // y precio de la fecha por cada equipo que juega esa fecha.
-export const dashboardDe = (orgId) => {
+export const dashboardDe = async (orgId) => {
     const hoy = hoyAR();
     const meses = ultimosMeses(MESES);
     const porMes = Object.fromEntries(meses.map(m => [m, 0]));
     const sumarMes = (dia, monto) => { const m = dia.slice(0, 7); if (m in porMes) porMes[m] += monto; };
 
-    const confirmadas = new Map(inscripcionesManager.inscripciones
-        .filter(i => i.estado === 'confirmada' && i.equipoId)
-        .map(i => [i.equipoId, i]));
+    // Todo de una vez para los torneos de la organizacion (pocas consultas, no una por torneo)
+    const torneosOrg = await torneosManager.getByOrganizador(orgId);
+    const torIds = torneosOrg.map(t => t.id);
+    const [todosEquipos, todosPartidos, todasFechas, inscripciones, tomados, todasMultas] = await Promise.all([
+        equiposManager.getByTorneos(torIds),
+        partidosManager.getByTorneos(torIds),
+        fechasManager.getRawByTorneos(torIds), // de la mas nueva a la mas vieja, con estado y el detalle de pagos
+        inscripcionesManager.confirmadasDeTorneos(torIds),
+        amistososManager.tomadosDeTorneos(torIds),
+        multasManager.getByTorneos(torIds),
+    ]);
+
+    const confirmadas = new Map(inscripciones.filter(i => i.equipoId).map(i => [i.equipoId, i]));
 
     const totales = {
         torneos: 0, porEstado: { 'inscripcion-abierta': 0, proximamente: 0, 'en-curso': 0, finalizado: 0 },
@@ -40,10 +50,10 @@ export const dashboardDe = (orgId) => {
     const proximas = [];
     const torneos = [];
 
-    for (const tor of torneosManager.getTorneos().filter(t => t.organizadorId === orgId)) {
-        const equipos = equiposManager.getEquipos().filter(e => e.tor_id === tor.id);
-        const partidos = partidosManager.getPartidos().filter(p => p.tor_id === tor.id);
-        const fechas = fechasManager.getRawByTorneo(tor.id); // de la mas nueva a la mas vieja, con estado y el detalle de pagos
+    for (const tor of torneosOrg) {
+        const equipos = todosEquipos.filter(e => e.tor_id === tor.id);
+        const partidos = todosPartidos.filter(p => p.tor_id === tor.id);
+        const fechas = todasFechas.filter(f => f.tor_id === tor.id);
         const n = equipos.length;
 
         totales.torneos++;
@@ -79,7 +89,7 @@ export const dashboardDe = (orgId) => {
             }
 
             // Amistosos express tomados en esta fecha
-            for (const a of amistososManager.amistosos.filter(x => x.fecha_id === f.id && x.estado === 'tomado')) {
+            for (const a of tomados.filter(x => x.fecha_id === f.id)) {
                 cobradoFecha += a.pago?.monto ?? a.precio;
             }
 
@@ -111,7 +121,7 @@ export const dashboardDe = (orgId) => {
         const restante = faltan * equiposPorFecha(n) * (tor.precioFecha ?? 0);
 
         // Multas por no pagar fechas a tiempo (si el torneo tiene penalizacion)
-        const multasTor = multasManager.multas.filter(m => m.tor_id === tor.id);
+        const multasTor = todasMultas.filter(m => m.tor_id === tor.id);
         const ingMultas = multasTor.filter(m => m.estado === 'pagada').reduce((s, m) => s + m.monto, 0);
         const multasPend = multasTor.filter(m => m.estado === 'pendiente').reduce((s, m) => s + m.monto, 0);
         for (const m of multasTor.filter(x => x.estado === 'pagada')) sumarMes(m.pago?.fecha?.slice(0, 10) ?? hoy, m.monto);

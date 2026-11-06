@@ -12,18 +12,18 @@ const ordenar = (equipos) => [...equipos].sort((a, b) =>
 
 // Todos los torneos donde esta anotado un equipo, ya ordenados:
 // 1) en curso, los que terminan antes primero  2) proximos a empezar, los que empiezan antes primero  3) finalizados, los mas recientes primero
-export const torneosDeClub = (clubId) => {
+export const torneosDeClub = async (clubId) => {
     const items = [];
 
-    for (const eq of equiposManager.getEquipos().filter(e => e.club_id === clubId)) {
-        const tor = torneosManager.getTorneoById(eq.tor_id);
+    for (const eq of await equiposManager.getByClub(clubId)) {
+        const tor = await torneosManager.getTorneoById(eq.tor_id);
         if (tor.error) continue;
 
         const empezado = tor.estado === 'en-curso' || tor.estado === 'finalizado';
-        const equiposTor = equiposManager.getEquipos().filter(e => e.tor_id === tor.id);
+        const equiposTor = await equiposManager.getByTorneo(tor.id);
         const n = equiposTor.length;
         const fechasTotales = n < 2 ? 0 : n % 2 ? n : n - 1; // todos contra todos, una rueda
-        const fechas = fechasManager.getByTorneo(tor.id); // de la mas nueva a la mas vieja
+        const fechas = await fechasManager.getByTorneo(tor.id); // de la mas nueva a la mas vieja
         const ultimoDia = fechas[0]?.dia ?? tor.fechaInicio;
         const faltan = Math.max(fechasTotales - fechas.length, 0);
 

@@ -1,26 +1,21 @@
-import fs from 'fs';
 import bcrypt from 'bcryptjs';
 import { randomUUID } from 'crypto';
+import { q, esDuplicado } from '../db/index.js';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // Se usa para que el login tarde igual exista o no el email
 const DUMMY_HASH = bcrypt.hashSync('dummy-password', 10);
 
 const ROLES = ['capitan', 'organizador'];
+const EMAIL_REPETIDO = { error: 'Ya existe una cuenta con ese email' };
 
 // Frena la fuerza bruta sobre la contraseña actual: 5 errores cada 15 minutos por usuario
 const MAX_INTENTOS = 5;
 const VENTANA_MS = 15 * 60 * 1000;
 
 class UsuariosManager {
-    constructor(path) {
-        this.path = path;
-        this.usuarios = JSON.parse(fs.readFileSync(path));
+    constructor() {
         this.intentos = new Map(); // userId -> { n, desde }
-    }
-
-    save() {
-        return fs.promises.writeFile(this.path, JSON.stringify(this.usuarios, null, 4));
     }
 
     // Nunca devolvemos el hash ni la version de sesion
@@ -29,13 +24,17 @@ class UsuariosManager {
         return { ...rest, rol: rest.rol ?? 'organizador' };
     }
 
-    getRaw(id) {
-        return this.usuarios.find(x => x.id === id) || null;
+    async getRaw(id) {
+        return (await q().selectFrom('usuarios').selectAll().where('id', '=', String(id ?? '')).executeTakeFirst()) ?? null;
     }
 
-    getById(id) {
-        const u = this.usuarios.find(x => x.id === id);
+    async getById(id) {
+        const u = await this.getRaw(id);
         return u ? this.publico(u) : null;
+    }
+
+    async getByEmail(email) {
+        return (await q().selectFrom('usuarios').selectAll().where('email', '=', email).executeTakeFirst()) ?? null;
     }
 
     // Verifica la contraseña actual con tope de intentos fallidos
@@ -58,7 +57,7 @@ class UsuariosManager {
 
     // Editar nombre y/o email. Cambiar el email exige la contraseña actual.
     async actualizar(id, { nombre, email, password } = {}) {
-        const usuario = this.usuarios.find(u => u.id === id);
+        const usuario = await this.getRaw(id);
         if (!usuario) return { error: 'No se encontró la cuenta' };
 
         nombre = String(nombre ?? '').trim();
@@ -67,25 +66,24 @@ class UsuariosManager {
         if (!nombre || nombre.length > 60) return { error: 'Ingresá tu nombre (hasta 60 caracteres)' };
         if (!EMAIL_RE.test(email)) return { error: 'El email no es válido' };
 
-        const cambiaEmail = email !== usuario.email;
-
-        if (cambiaEmail) {
+        if (email !== usuario.email) {
             const check = await this.verificarPassword(usuario, password);
             if (check.error) return check;
         }
 
-        // Se chequea despues del await para que dos pedidos simultaneos no dupliquen el email
-        if (this.usuarios.some(u => u.id !== id && u.email === email)) return { error: 'Ya existe una cuenta con ese email' };
+        try {
+            // El email es UNIQUE en la base: dos pedidos simultaneos no pueden quedarse con el mismo
+            await q().updateTable('usuarios').set({ nombre, email }).where('id', '=', id).execute();
+        } catch (err) {
+            if (esDuplicado(err)) return EMAIL_REPETIDO;
+            throw err;
+        }
 
-        usuario.nombre = nombre;
-        usuario.email = email;
-        await this.save();
-
-        return this.publico(usuario);
+        return this.getById(id);
     }
 
     async cambiarPassword(id, { actual, nueva } = {}) {
-        const usuario = this.usuarios.find(u => u.id === id);
+        const usuario = await this.getRaw(id);
         if (!usuario) return { error: 'No se encontró la cuenta' };
 
         nueva = String(nueva ?? '');
@@ -96,37 +94,34 @@ class UsuariosManager {
 
         if (await bcrypt.compare(nueva, usuario.passwordHash)) return { error: 'La contraseña nueva tiene que ser distinta de la actual' };
 
-        usuario.passwordHash = await bcrypt.hash(nueva, 10);
-        usuario.tokenVersion = (usuario.tokenVersion ?? 0) + 1; // cierra las sesiones abiertas en otros dispositivos
-        await this.save();
+        const hash = await bcrypt.hash(nueva, 10);
+        // Subir la version de sesion cierra las sesiones abiertas en otros dispositivos
+        await q().updateTable('usuarios')
+            .set((eb) => ({ passwordHash: hash, tokenVersion: eb('tokenVersion', '+', 1) }))
+            .where('id', '=', id).execute();
 
         return { ok: true };
     }
 
     // Invalida todos los tokens emitidos hasta ahora (incluido el de este dispositivo)
     async cerrarSesiones(id) {
-        const usuario = this.getRaw(id);
-        if (!usuario) return { error: 'No se encontró la cuenta' };
-
-        usuario.tokenVersion = (usuario.tokenVersion ?? 0) + 1;
-        await this.save();
+        const r = await q().updateTable('usuarios').set((eb) => ({ tokenVersion: eb('tokenVersion', '+', 1) })).where('id', '=', id).executeTakeFirst();
+        if (!Number(r.numUpdatedRows)) return { error: 'No se encontró la cuenta' };
 
         return { ok: true };
     }
 
-    // Verifica la contraseña (con tope de intentos) y, si es correcta, borra la cuenta.
-    // Quien llama borra antes lo que depende de la cuenta (equipo u organizacion).
+    // Verifica la contraseña (con tope de intentos). Quien llama borra antes lo que depende de la cuenta.
     async confirmarPassword(id, password) {
-        const usuario = this.getRaw(id);
+        const usuario = await this.getRaw(id);
         if (!usuario) return { error: 'No se encontró la cuenta' };
 
         return this.verificarPassword(usuario, password);
     }
 
     async eliminar(id) {
-        this.usuarios = this.usuarios.filter(u => u.id !== id);
+        await q().deleteFrom('usuarios').where('id', '=', id).execute();
         this.intentos.delete(id);
-        await this.save();
 
         return { ok: true };
     }
@@ -141,25 +136,25 @@ class UsuariosManager {
         if (!EMAIL_RE.test(email)) return { error: 'El email no es válido' };
         if (password.length < 8 || password.length > 72) return { error: 'La contraseña debe tener entre 8 y 72 caracteres' };
 
-        const passwordHash = await bcrypt.hash(password, 10);
-
-        // Se chequea despues del await para que dos registros simultaneos no dupliquen el email
-        if (this.usuarios.some(u => u.email === email)) return { error: 'Ya existe una cuenta con ese email' };
-
         const usuario = {
             id: `USR-${randomUUID().slice(0, 8)}`,
-            nombre, email, passwordHash, rol,
+            nombre, email, passwordHash: await bcrypt.hash(password, 10), rol,
             creado: new Date().toISOString(),
+            tokenVersion: 0,
         };
 
-        this.usuarios.push(usuario);
-        await this.save();
+        try {
+            await q().insertInto('usuarios').values(usuario).execute();
+        } catch (err) {
+            if (esDuplicado(err)) return EMAIL_REPETIDO;
+            throw err;
+        }
 
         return this.publico(usuario);
     }
 
     async login({ email, password } = {}) {
-        const usuario = this.usuarios.find(u => u.email === String(email ?? '').trim().toLowerCase());
+        const usuario = await this.getByEmail(String(email ?? '').trim().toLowerCase());
         const ok = await bcrypt.compare(String(password ?? ''), usuario?.passwordHash ?? DUMMY_HASH);
 
         if (!usuario || !ok) return { error: 'Email o contraseña incorrectos' };

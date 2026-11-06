@@ -1,4 +1,3 @@
-import { dataPath } from '../config.js';
 import TorneosManager from './torneosManager.js';
 import EquiposManager from './equiposManager.js';
 import OrganizadoresManager from './organizadoresManager.js';
@@ -9,18 +8,18 @@ import UsuariosManager from './usuariosManager.js';
 import InscripcionesManager from './inscripcionesManager.js';
 import AmistososManager from './amistososManager.js';
 import MultasManager from './multasManager.js';
+import JugadoresManager from './jugadoresManager.js';
 
-export const torneosManager = new TorneosManager(dataPath('torneos.json'));
-export const equiposManager = new EquiposManager(dataPath('equipos.json'));
-export const organizadoresManager = new OrganizadoresManager(dataPath('organizadores.json'), torneosManager);
-export const clubesManager = new ClubesManager(dataPath('clubes.json'), equiposManager, torneosManager);
-export const usuariosManager = new UsuariosManager(dataPath('usuarios.json'));
-export const partidosManager = new PartidosManager(dataPath('partidos.json'));
-export const fechasManager = new FechasManager(dataPath('fechas.json'), equiposManager, partidosManager);
-export const inscripcionesManager = new InscripcionesManager(dataPath('inscripciones.json'));
-export const amistososManager = new AmistososManager(dataPath('amistosos.json'));
-export const multasManager = new MultasManager(dataPath('multas.json'));
-
-torneosManager.getTorneos();
-equiposManager.getEquipos();
-partidosManager.getPartidos();
+// Un solo manager de cada tipo para toda la API. Los datos viven en la base (db/index.js), no en memoria:
+// solo quedan en memoria los candados de pagos en curso y los intentos de contraseña.
+export const torneosManager = new TorneosManager();
+export const equiposManager = new EquiposManager();
+export const organizadoresManager = new OrganizadoresManager();
+export const clubesManager = new ClubesManager();
+export const usuariosManager = new UsuariosManager();
+export const partidosManager = new PartidosManager();
+export const fechasManager = new FechasManager();
+export const inscripcionesManager = new InscripcionesManager();
+export const amistososManager = new AmistososManager();
+export const multasManager = new MultasManager();
+export const jugadoresManager = new JugadoresManager();

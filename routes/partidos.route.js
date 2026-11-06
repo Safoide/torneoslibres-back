@@ -1,38 +1,37 @@
-import { fail } from '../middleware/errores.js';
-import { Router } from 'express';
+import { Router } from '../middleware/router.js';
 import { partidosManager as manager } from '../manager/instances.js';
 import { requireAuth, requireRol } from '../middleware/auth.js';
 import { conOrganizacion, miTorneo } from '../middleware/organizador.js';
 import { recalcularTabla } from '../services/fixtureService.js';
+import { tx } from '../db/index.js';
 
 const router = Router();
 
-
 // Lectura: publica
 
-router.get('/', (req, res) => {
-    res.json(manager.getPartidos());
+router.get('/', async (req, res) => {
+    res.json(await manager.getPartidos());
 });
 
-router.get('/partido/:matchId', (req, res) => {
-    res.json(manager.getPartidoById(req.params.matchId));
+router.get('/partido/:matchId', async (req, res) => {
+    res.json(await manager.getPartidoById(req.params.matchId));
 });
 
-router.get('/equipo/:teamId', (req, res) => {
-    res.json(manager.getPartidosByTeam(req.params.teamId));
+router.get('/equipo/:teamId', async (req, res) => {
+    res.json(await manager.getPartidosByTeam(req.params.teamId));
 });
 
-router.get('/torneo/:torId', (req, res) => {
-    res.json(manager.getPartidosByTournament(req.params.torId));
+router.get('/torneo/:torId', async (req, res) => {
+    res.json(await manager.getPartidosByTournament(req.params.torId));
 });
 
 // Los partidos se crean y se borran junto con su fecha (/fechas), no de a uno.
 // Cargar el resultado: solo el organizador dueño del torneo, y solo cuando el partido ya empezó.
-router.put('/:matchId', requireAuth, requireRol('organizador'), conOrganizacion, (req, res) => {
-    const partido = manager.getPartidoById(req.params.matchId);
+router.put('/:matchId', requireAuth, requireRol('organizador'), conOrganizacion, async (req, res) => {
+    const partido = await manager.getPartidoById(req.params.matchId);
     if (partido.error) return res.status(404).json(partido);
 
-    const { error, status } = miTorneo(req, partido.tor_id);
+    const { error, status } = await miTorneo(req, partido.tor_id);
     if (error) return res.status(status).json({ error });
 
     const local = Number(req.body?.home_goals);
@@ -43,10 +42,13 @@ router.put('/:matchId', requireAuth, requireRol('organizador'), conOrganizacion,
     if (new Date(partido.date).getTime() > Date.now()) return res.status(400).json({ error: 'El partido todavía no se jugó' });
     if (partido.wo) return res.status(400).json({ error: 'Este partido se definió por W.O. (un equipo no pagó a tiempo): no se puede cargar el resultado' });
 
-    // Solo se toman los goles: nunca se copia el body entero
-    manager.editMatch(partido.id, { home_goals: local, away_goals: visita })
-        .then(async (editado) => { await recalcularTabla(partido.tor_id); res.json(editado); })
-        .catch(err => fail(res, err));
+    // Solo se toman los goles: nunca se copia el body entero. Resultado y tabla, todo junto
+    const editado = await tx(async () => {
+        const p = await manager.editMatch(partido.id, { home_goals: local, away_goals: visita });
+        await recalcularTabla(partido.tor_id);
+        return p;
+    });
+    res.json(editado);
 });
 
 export default router;

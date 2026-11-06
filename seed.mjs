@@ -2,13 +2,16 @@
 // y crea 25 torneos nuevos con equipos, fixture y tabla de posiciones.
 // Tambien crea una cuenta de organizador para cada organizacion que no tenia dueño.
 //
-// Uso (con el servidor apagado):  node seed.mjs
-// Antes de escribir hace un backup de ./databases en ./databases/backup-<fecha>/
+// Uso:  node seed.mjs   (se puede correr con la API prendida: escribe todo junto en una transaccion)
+// Antes de escribir hace una copia de la base en databases/backup-<fecha>.db
 
-import fs from 'fs';
+import path from 'path';
 import bcrypt from 'bcryptjs';
 
-const DB = './databases';
+const { migrar, copiarBase, cerrar, DB_FILE } = await import('./db/index.js');
+const { exportarTodo, reemplazarTodo } = await import('./db/datos.js');
+await migrar();
+const datos = await exportarTodo();
 const PASSWORD = 'Torneos123';
 const HOY = '2026-11-05';
 
@@ -26,8 +29,8 @@ const mezclar = (arr) => { const a = [...arr]; for (let i = a.length - 1; i > 0;
 const poisson = (l) => { const L = Math.exp(-l); let k = 0, p = 1; do { k++; p *= rnd(); } while (p > L); return k - 1; };
 const id = (palabra, n) => n > 9 ? `${palabra}-${n}` : `${palabra}-0${n}`; // igual que assets.js
 
-const leer = (n) => JSON.parse(fs.readFileSync(`${DB}/${n}.json`));
-const escribir = (n, data, indent) => fs.writeFileSync(`${DB}/${n}.json`, JSON.stringify(data, null, indent));
+const leer = (n) => datos[n];
+const escribir = (n, data) => { datos[n] = data; };
 
 const sumarDias = (iso, dias) => { const d = new Date(`${iso}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + dias); return d.toISOString().slice(0, 10); };
 const DIAS = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
@@ -125,9 +128,9 @@ const fixture = (equipos) => {
 };
 
 // ---------- arma todo ----------
-const backup = `${DB}/backup-${Date.now()}`;
-fs.mkdirSync(backup, { recursive: true });
-for (const f of fs.readdirSync(DB).filter(f => f.endsWith('.json'))) fs.copyFileSync(`${DB}/${f}`, `${backup}/${f}`);
+const backup = path.join(path.dirname(DB_FILE), `backup-${Date.now()}.db`);
+await copiarBase(backup);
+console.log('Copia de la base en', backup);
 
 // cuentas de organizador (se reusan si ya existian de una corrida anterior)
 const usuarios = leer('usuarios');
@@ -270,14 +273,17 @@ for (const [i, [orgId, nombre, modalidad, categoria, estado, inscriptos, equipos
 // los partidos mas nuevos primero (asi los guarda la app, que agrega al principio)
 partidos.sort((a, b) => parseInt(b.id.split('-')[1]) - parseInt(a.id.split('-')[1]));
 
-escribir('usuarios', usuarios, 4);
-escribir('organizadores', organizaciones, 4);
-escribir('torneos', torneos, 4);
+escribir('usuarios', usuarios);
+escribir('organizadores', organizaciones);
+escribir('torneos', torneos);
 escribir('equipos', equipos.map(({ fuerza, ...e }) => e));
 escribir('jugadores', jugadores.map(({ peso, ...j }) => j));
 escribir('partidos', partidos);
 escribir('inscripciones', []);
-escribir('fechas', fechas, 4);
+escribir('fechas', fechas);
+
+await reemplazarTodo(datos);
+await cerrar();
 
 console.table(resumen.map(([id, nombre, estado, insc, max, fechas]) => ({ id, nombre, estado, equipos: `${insc}/${max}`, fechas })));
 console.log(`\nPassword de todas las cuentas: ${PASSWORD}`);

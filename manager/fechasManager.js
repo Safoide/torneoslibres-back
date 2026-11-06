@@ -1,15 +1,16 @@
-import fs from 'fs';
-import { byId, formatId } from '../assets.js';
+import { formatId } from '../assets.js';
+import { q, tx, siguienteId } from '../db/index.js';
+import { aFila, deFila, deFilas } from '../db/filas.js';
 import { rondasDe } from '../services/fixtureService.js';
 import { cobrar } from '../services/pagosService.js';
 import { reglasDe } from './torneosManager.js';
+import { equiposManager, partidosManager, torneosManager, amistososManager, multasManager } from './instances.js';
 
 const DURACION = { f5: 40, f7: 50, f8: 60, f11: 90 }; // minutos por partido
 export const ANTICIPACION_DIAS = 3; // las fechas se publican con al menos 3 dias de anticipacion
 const HORA_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 const AR = '-03:00'; // Argentina no usa horario de verano
 
-const minutos = (hhmm) => parseInt(hhmm.slice(0, 2), 10) * 60 + parseInt(hhmm.slice(3), 10);
 const aMs = (dia, hhmm) => new Date(`${dia}T${hhmm}:00${AR}`).getTime();
 // ms -> "2026-11-07T16:00:00-03:00"
 const aIso = (ms) => new Date(ms - 3 * 3600e3).toISOString().slice(0, 19) + AR;
@@ -23,16 +24,23 @@ const sumarDias = (iso, dias) => {
 export const vencimientoPago = (dia) => `${sumarDias(dia, -1)}T23:59:59${AR}`;
 
 class FechasManager {
-    constructor(path, equiposManager, partidosManager) {
-        this.path = path;
-        this.equiposManager = equiposManager;
-        this.partidosManager = partidosManager;
-        if (!fs.existsSync(path)) fs.writeFileSync(path, '[]');
-        this.fechas = JSON.parse(fs.readFileSync(path));
+    constructor() {
+        this.procesando = new Set(); // evita cobrar dos veces si se toca "Pagar" dos veces
     }
 
-    save() {
-        return fs.promises.writeFile(this.path, JSON.stringify(this.fechas, null, 4));
+    // Arma cada fecha como antes: pagos = { [equipoId]: { estado, monto, pago? } } si tiene cobro online, y si no, sin pagos
+    async armar(filas) {
+        const fechas = deFilas('fechas', filas);
+        const conCobro = fechas.filter(f => f.cobro).map(f => f.id);
+        const pagos = conCobro.length
+            ? deFilas('fecha_pagos', await q().selectFrom('fecha_pagos').selectAll().where('fechaId', 'in', conCobro).orderBy('orden').execute())
+            : [];
+
+        return fechas.map(({ cobro, ...f }) => {
+            if (!cobro) return f;
+            const deEsta = pagos.filter(p => p.fechaId === f.id);
+            return { ...f, pagos: Object.fromEntries(deEsta.map(({ fechaId, equipoId, orden, pago, ...p }) => [equipoId, pago ? { ...p, pago } : p])) };
+        });
     }
 
     // Inicio y fin reales (el fin puede ser pasada la medianoche: "20:00" a "00:00")
@@ -69,21 +77,28 @@ class FechasManager {
         };
     }
 
-    getByTorneo(torId) {
-        return this.fechas.filter(f => f.tor_id === torId)
-            .sort((a, b) => b.numero - a.numero)
-            .map(f => this.publico(f));
+    async filasDeTorneo(torIds) {
+        return torIds.length
+            ? q().selectFrom('fechas').selectAll().where('tor_id', 'in', torIds).orderBy('numero', 'desc').execute()
+            : [];
+    }
+
+    async getByTorneo(torId) {
+        return (await this.armar(await this.filasDeTorneo([String(torId ?? '')]))).map(f => this.publico(f));
     }
 
     // Igual que getByTorneo pero con el detalle de pagos (panel del organizador, vencimientos)
-    getRawByTorneo(torId) {
-        return this.fechas.filter(f => f.tor_id === torId)
-            .sort((a, b) => b.numero - a.numero)
-            .map(f => this.conEstado(f));
+    async getRawByTorneo(torId) {
+        return (await this.armar(await this.filasDeTorneo([String(torId ?? '')]))).map(f => this.conEstado(f));
     }
 
-    getById(id) {
-        return this.fechas.find(byId(id)) || null;
+    async getRawByTorneos(torIds) {
+        return (await this.armar(await this.filasDeTorneo(torIds))).map(f => this.conEstado(f));
+    }
+
+    async getById(id) {
+        const fila = await q().selectFrom('fechas').selectAll().where('id', '=', String(id ?? '')).executeTakeFirst();
+        return fila ? (await this.armar([fila]))[0] : null;
     }
 
     async crear(tor, data = {}) {
@@ -102,69 +117,77 @@ class FechasManager {
         if (inicio === fin) return { error: 'El horario de inicio y de finalización no pueden ser iguales' };
         if (!Number.isInteger(canchas) || canchas < 1 || canchas > 8) return { error: 'La cantidad de canchas debe ser entre 1 y 8' };
 
-        const previas = this.fechas.filter(f => f.tor_id === tor.id);
-        const ultima = previas.reduce((a, f) => (f.numero > (a?.numero ?? 0) ? f : a), null);
-        if (ultima && dia <= ultima.dia) return { error: `El día tiene que ser posterior al de la fecha ${ultima.numero} (${ultima.dia})` };
+        // Todo junto en una transaccion: los partidos, la fecha y los pagos se crean todos o ninguno
+        return tx(async () => {
+            const ultima = await q().selectFrom('fechas').selectAll().where('tor_id', '=', tor.id).orderBy('numero', 'desc').executeTakeFirst();
+            if (ultima && dia <= ultima.dia) return { error: `El día tiene que ser posterior al de la fecha ${ultima.numero} (${ultima.dia})` };
 
-        const numero = (ultima?.numero ?? 0) + 1;
-        const equipos = this.equiposManager.getEquipos().filter(e => e.tor_id === tor.id);
-        if (equipos.length < 2) return { error: 'El torneo necesita al menos 2 equipos para armar una fecha' };
+            const numero = (ultima?.numero ?? 0) + 1;
+            const equipos = await equiposManager.getByTorneo(tor.id);
+            if (equipos.length < 2) return { error: 'El torneo necesita al menos 2 equipos para armar una fecha' };
 
-        const rondas = rondasDe(equipos);
-        if (numero > rondas.length) return { error: `Ya se programaron las ${rondas.length} fechas del fixture (todos contra todos)` };
+            const rondas = rondasDe(equipos);
+            if (numero > rondas.length) return { error: `Ya se programaron las ${rondas.length} fechas del fixture (todos contra todos)` };
 
-        const partidos = rondas[numero - 1];
-        const dur = DURACION[tor.modalidad] ?? 50;
-        const { ini, fin: finMs } = this.rango({ dia, inicio, fin });
-        const ventana = (finMs - ini) / 60000;
-        const turnos = Math.ceil(partidos.length / canchas);
+            const partidos = rondas[numero - 1];
+            const dur = DURACION[tor.modalidad] ?? 50;
+            const { ini, fin: finMs } = this.rango({ dia, inicio, fin });
+            const ventana = (finMs - ini) / 60000;
+            const turnos = Math.ceil(partidos.length / canchas);
 
-        if (turnos * dur > ventana) {
-            const necesarios = turnos * dur;
-            return { error: `No entran ${partidos.length} partidos de ${dur} min con ${canchas} ${canchas === 1 ? 'cancha' : 'canchas'} en ${ventana} min. Ampliá el horario (necesitás ${necesarios} min) o sumá canchas.` };
-        }
+            if (turnos * dur > ventana) {
+                const necesarios = turnos * dur;
+                return { error: `No entran ${partidos.length} partidos de ${dur} min con ${canchas} ${canchas === 1 ? 'cancha' : 'canchas'} en ${ventana} min. Ampliá el horario (necesitás ${necesarios} min) o sumá canchas.` };
+            }
 
-        const fecha = {
-            id: formatId('FECHA', this.fechas.reduce((m, f) => Math.max(m, parseInt(f.id.split('-')[1], 10) || 0), 0) + 1),
-            tor_id: tor.id, numero, dia, inicio, fin, canchas, precio: tor.precioFecha, creada: new Date().toISOString(),
-            // Cada equipo que juega paga su parte antes del vencimiento; el que tiene fecha libre no paga.
-            // Si no paga a tiempo pierde por W.O. (ver services/vencimientosService.js)
-            vencePago: vencimientoPago(dia),
-            // Copia de las reglas del torneo al crear la fecha: penalizacion (W.O. + multa) y amistosos express
-            reglas: reglasDe(tor),
-            pagos: Object.fromEntries(partidos.flat().map(eq => [eq.id, { estado: 'pendiente', monto: tor.precioFecha }])),
-        };
+            const fecha = {
+                id: formatId('FECHA', await siguienteId('fechas', 'FECHA')),
+                tor_id: tor.id, numero, dia, inicio, fin, canchas, precio: tor.precioFecha, creada: new Date().toISOString(),
+                // Cada equipo que juega paga su parte antes del vencimiento; el que tiene fecha libre no paga.
+                // Si no paga a tiempo pierde por W.O. (ver services/vencimientosService.js)
+                cobro: true,
+                vencePago: vencimientoPago(dia),
+                // Copia de las reglas del torneo al crear la fecha: penalizacion (W.O. + multa) y amistosos express
+                reglas: reglasDe(tor),
+                pagosProcesados: false,
+            };
 
-        await this.partidosManager.addMatches(partidos.map(([local, visita], i) => ({
-            tor_id: tor.id, fecha: numero, home_id: local.id, away_id: visita.id,
-            date: aIso(ini + Math.floor(i / canchas) * dur * 60000), cancha: (i % canchas) + 1,
-            home_goals: null, away_goals: null,
-        })));
+            await partidosManager.addMatches(partidos.map(([local, visita], i) => ({
+                tor_id: tor.id, fecha: numero, home_id: local.id, away_id: visita.id,
+                date: aIso(ini + Math.floor(i / canchas) * dur * 60000), cancha: (i % canchas) + 1,
+                home_goals: null, away_goals: null,
+            })));
 
-        this.fechas.push(fecha);
-        await this.save();
+            await q().insertInto('fechas').values(aFila('fechas', fecha)).execute();
+            await q().insertInto('fecha_pagos')
+                .values(partidos.flat().map((eq, orden) => ({ fechaId: fecha.id, equipoId: eq.id, orden, estado: 'pendiente', monto: tor.precioFecha })))
+                .execute();
 
-        return this.publico(fecha);
+            return this.publico(await this.getById(fecha.id));
+        });
     }
 
     // Solo se puede cancelar la ultima fecha y antes de que empiece
     async eliminar(id) {
-        const f = this.getById(id);
+        const f = await this.getById(id);
         if (!f) return { error: 'No se encontró la fecha' };
 
-        if (this.fechas.some(x => x.tor_id === f.tor_id && x.numero > f.numero)) return { error: 'Solo se puede cancelar la última fecha creada' };
-        if (this.publico(f).estado !== 'programada') return { error: 'La fecha ya empezó: no se puede cancelar' };
+        const posterior = await q().selectFrom('fechas').select('id').where('tor_id', '=', f.tor_id).where('numero', '>', f.numero).executeTakeFirst();
+        if (posterior) return { error: 'Solo se puede cancelar la última fecha creada' };
+        if (this.estadoDe(f) !== 'programada') return { error: 'La fecha ya empezó: no se puede cancelar' };
 
-        await this.partidosManager.deleteByFecha(f.tor_id, f.numero);
-        this.fechas = this.fechas.filter(x => x.id !== id);
-        await this.save();
+        await tx(async () => {
+            await partidosManager.deleteByFecha(f.tor_id, f.numero);
+            await q().deleteFrom('fecha_pagos').where('fechaId', '=', id).execute();
+            await q().deleteFrom('fechas').where('id', '=', id).execute();
+        });
 
         return { ok: true };
     }
 
     // El capitan paga la parte de su equipo. El monto lo define el servidor al crear la fecha
     async pagar(fechaId, equipoId, { metodo = 'tarjeta', simular } = {}) {
-        const f = this.getById(fechaId);
+        const f = await this.getById(fechaId);
         if (!f) return { error: 'No se encontró la fecha' };
 
         const pago = f.pagos?.[equipoId];
@@ -172,7 +195,6 @@ class FechasManager {
         if (pago.estado === 'pagado') return this.publico(f); // ya pagada: no se cobra de nuevo
         if (pago.estado === 'vencido' || Date.now() > Date.parse(f.vencePago)) return { error: 'Venció el plazo para pagar esta fecha (23:59 del día anterior)' };
 
-        this.procesando ??= new Set();
         const clave = `${fechaId}:${equipoId}`;
         if (this.procesando.has(clave)) return { error: 'El pago ya se está procesando' };
         this.procesando.add(clave);
@@ -181,56 +203,56 @@ class FechasManager {
             const r = await cobrar({ monto: pago.monto, metodo: metodo === 'mercadopago' ? 'mercadopago' : 'tarjeta', simular });
             if (!r.ok) return { error: r.motivo };
 
-            // Por si vencio mientras se procesaba el cobro (el pago simulado tarda ~1 s)
-            if (pago.estado !== 'pendiente') return { error: 'Venció el plazo para pagar esta fecha' };
+            // Solo si sigue pendiente: si vencio mientras se procesaba el cobro (tarda ~1 s), no se marca
+            const datos = { id: r.id, metodo: r.metodo, monto: r.monto, fecha: new Date().toISOString() };
+            const act = await q().updateTable('fecha_pagos').set({ estado: 'pagado', pago: JSON.stringify(datos) })
+                .where('fechaId', '=', fechaId).where('equipoId', '=', equipoId).where('estado', '=', 'pendiente')
+                .executeTakeFirst();
+            if (!Number(act.numUpdatedRows)) return { error: 'Venció el plazo para pagar esta fecha' };
 
-            f.pagos[equipoId] = { ...pago, estado: 'pagado', pago: { id: r.id, metodo: r.metodo, monto: r.monto, fecha: new Date().toISOString() } };
-            await this.save();
-
-            return this.publico(f);
+            return this.publico(await this.getById(fechaId));
         } finally {
             this.procesando.delete(clave);
         }
     }
 
     // Vencimiento: marca como vencidos los pagos pendientes. Devuelve los equipos que no pagaron
+    // (null si la fecha ya se habia procesado). Llamarlo dentro de tx().
     async vencerPagos(fechaId) {
-        const f = this.getById(fechaId);
-        if (!f?.pagos || f.pagosProcesados) return null;
+        const marcada = await q().updateTable('fechas').set({ pagosProcesados: 1 })
+            .where('id', '=', fechaId).where('cobro', '=', 1).where('pagosProcesados', '=', 0).executeTakeFirst();
+        if (!Number(marcada.numUpdatedRows)) return null;
 
-        const noPagaron = [];
-        for (const [equipoId, p] of Object.entries(f.pagos)) {
-            if (p.estado === 'pendiente') { p.estado = 'vencido'; noPagaron.push(equipoId); }
-        }
+        const pendientes = await q().selectFrom('fecha_pagos').select('equipoId')
+            .where('fechaId', '=', fechaId).where('estado', '=', 'pendiente').execute();
+        await q().updateTable('fecha_pagos').set({ estado: 'vencido' })
+            .where('fechaId', '=', fechaId).where('estado', '=', 'pendiente').execute();
 
-        f.pagosProcesados = true;
-        await this.save();
-
-        return noPagaron;
+        return pendientes.map(p => p.equipoId);
     }
 
     // Fechas con cobro cuyo plazo ya vencio y todavia no se procesaron
-    vencidasSinProcesar(ahora = Date.now()) {
-        return this.fechas.filter(f => f.pagos && !f.pagosProcesados && ahora > Date.parse(f.vencePago));
+    async vencidasSinProcesar(ahora = Date.now()) {
+        const filas = await q().selectFrom('fechas').selectAll().where('cobro', '=', 1).where('pagosProcesados', '=', 0).execute();
+        return deFilas('fechas', filas).filter(f => ahora > Date.parse(f.vencePago));
     }
 
     // "Tu proxima fecha" del capitan: por cada torneo en curso donde esta su equipo, la fecha mas cercana que todavia no termino
-    proximasDeClub(clubId, torneosManager, amistososManager, multasManager) {
+    async proximasDeClub(clubId) {
         const ahora = Date.now();
         const salida = [];
 
-        for (const eq of this.equiposManager.getEquipos().filter(e => e.club_id === clubId)) {
-            const tor = torneosManager.getTorneoById(eq.tor_id);
+        for (const eq of await equiposManager.getByClub(clubId)) {
+            const tor = await torneosManager.getTorneoById(eq.tor_id);
             if (tor.error || tor.estado !== 'en-curso') continue;
 
-            const f = this.fechas
-                .filter(x => x.tor_id === tor.id && this.rango(x).fin > ahora)
-                .sort((a, b) => a.numero - b.numero)[0];
+            const f = (await this.armar(await q().selectFrom('fechas').selectAll().where('tor_id', '=', tor.id).orderBy('numero').execute()))
+                .find(x => this.rango(x).fin > ahora);
             if (!f) continue;
 
-            const p = this.partidosManager.getPartidos().find(x => x.tor_id === tor.id && x.fecha === f.numero && (x.home_id === eq.id || x.away_id === eq.id));
+            const p = (await partidosManager.getByFecha(tor.id, f.numero)).find(x => x.home_id === eq.id || x.away_id === eq.id);
             const rivalId = p ? (p.home_id === eq.id ? p.away_id : p.home_id) : null;
-            const rival = rivalId ? this.equiposManager.getEquipoById(rivalId) : null;
+            const rival = rivalId ? await equiposManager.getEquipoById(rivalId) : null;
 
             // Resultado del vencimiento: W.O. a favor (el rival no pago), en contra (no pagaste) o doble
             const soyLocal = p?.home_id === eq.id;
@@ -239,9 +261,9 @@ class FechasManager {
                 : (p.wo === 'local') === soyLocal ? 'en-contra' : 'a-favor';
 
             // Si ganaste por W.O., el amistoso express que se publico para que puedan jugar igual
-            const ami = wo === 'a-favor' ? amistososManager?.getByPartido(p.id) : null;
+            const ami = wo === 'a-favor' ? await amistososManager.getByPartido(p.id) : null;
             const miPago = f.pagos?.[eq.id];
-            const multa = multasManager?.multas.find(m => m.fecha_id === f.id && m.equipoId === eq.id);
+            const multa = await multasManager.getDe(f.id, eq.id);
 
             salida.push({
                 torneo: { id: tor.id, nombre: tor.nombre, modalidad: tor.modalidad, sede: tor.sede, direccion: tor.direccion, zona: tor.zona, organizador: tor.organizador, organizadorId: tor.organizadorId },

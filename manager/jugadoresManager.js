@@ -1,92 +1,26 @@
-import fs from 'fs'
-import { errorMessages, byId, formatId } from '../assets.js';
+import { errorMessages } from '../assets.js';
+import { q, porId } from '../db/index.js';
 
-
+// Estadisticas por jugador (goles, tarjetas). Solo lectura: no se cargan desde la app.
 class JugadoresManager {
-    constructor(path) {
-        this.jugadores = [];
-        this.path = path;
+    async getJugadores() {
+        return porId(q().selectFrom('jugadores').selectAll()).execute();
     }
 
-    // GET
-
-    getJugadores() {
-        if(!this.jugadores.length){
-            this.jugadores = JSON.parse(fs.readFileSync(this.path));
-        }
-        
-        return this.jugadores;
-    };
-
-    getJugadorById(playerId){
-        let playerById = this.jugadores.find(byId(playerId))
-        
-        if(!playerById) return {error: errorMessages.player_wrongId};
-
-        return playerById;
+    async getJugadorById(playerId) {
+        const j = await q().selectFrom('jugadores').selectAll().where('id', '=', String(playerId ?? '')).executeTakeFirst();
+        return j ?? { error: errorMessages.player_wrongId };
     }
 
-    getJugadoresByTeam(teamId) {
-        let playersByTeam = this.jugadores.filter((jugador) => jugador.team_id === teamId);
-        
-        if(!playersByTeam.length) return {error: errorMessages.noPlayers_team};
-
-        return playersByTeam;
+    async getJugadoresByTeam(teamId) {
+        const lista = await porId(q().selectFrom('jugadores').selectAll().where('team_id', '=', String(teamId ?? ''))).execute();
+        return lista.length ? lista : { error: errorMessages.noPlayers_team };
     }
 
-    getJugadoresByTournament(torId) {
-        let byTournament = this.jugadores.filter((jugador) => jugador.tor_id === torId);
-        
-        if(!byTournament.length) return {error: errorMessages.noPlayers_tor};
-
-        return byTournament;
-    }
-
-    // POST
-
-    async addPlayer(newPlayer) {
-        if(!newPlayer) return {error: errorMessages.wrongData};
-
-        newPlayer = {
-            id: formatId('PLAYER', this.jugadores.length + 1),
-            ...newPlayer
-        }
-
-        this.jugadores.unshift(newPlayer);
-
-        await fs.promises.writeFile(this.path, JSON.stringify(this.jugadores));
-
-        return this.jugadores;
-    }
-
-    // PUT
- 
-    async editPlayer(playerId, modifiedPlayer) {
-        let playerById = this.jugadores.find(byId(playerId));
-        let indexById = this.jugadores.findIndex(byId(playerId));
-
-        if(!playerById) return {error: errorMessages.player_wrongId};
-
-        this.jugadores[indexById] = { ...playerById, ...modifiedPlayer };
-
-        await fs.promises.writeFile(this.path, JSON.stringify(this.jugadores));
-
-        return this.jugadores.find(byId(playerId));
-    }
-
-    // DELETE
-
-    async deletePlayer(playerId) {
-
-        if(!this.jugadores.find(byId(playerId))) return {error: errorMessages.player_wrongId};
-
-        this.jugadores = this.jugadores.filter(jugador => jugador.id !== playerId);
-
-        await fs.promises.writeFile(this.path, JSON.stringify(this.jugadores));
-
-        return this.jugadores;
+    async getJugadoresByTournament(torId) {
+        const lista = await porId(q().selectFrom('jugadores').selectAll().where('tor_id', '=', String(torId ?? ''))).execute();
+        return lista.length ? lista : { error: errorMessages.noPlayers_tor };
     }
 }
-
 
 export default JugadoresManager;

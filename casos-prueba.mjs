@@ -1,16 +1,15 @@
 // Casos de prueba de pagos de fechas, penalizaciones, multas y amistosos express.
 // Crea cuentas de prueba (organizador + capitanes) y 10 torneos, cada uno armado para un caso.
 // Se puede correr las veces que haga falta: borra los casos de la corrida anterior y los vuelve a crear.
-// No toca el resto de los datos. Antes de escribir hace un backup de ./databases.
+// No toca el resto de los datos. Antes de escribir hace una copia de la base en databases/backup-casos-<fecha>.db.
 //
-// Uso (con la API apagada):  node casos-prueba.mjs
+// Uso:  node casos-prueba.mjs   (se puede correr con la API prendida: los dos usan la misma base)
 // Contraseña de todas las cuentas: Prueba123
 //
 // Nota: para ver hoy los casos "ya vencidos" (W.O., multas, amistosos) se fuerza el vencimiento del pago
 // de esas fechas aunque el partido sea en unos días. En la app real vence a las 23:59 del día anterior.
 
-import fs from 'fs';
-import net from 'net';
+import path from 'path';
 
 const PASSWORD = 'Prueba123';
 const DOMINIO = '@torneoslibres.test';
@@ -23,53 +22,46 @@ const CUENTAS = {
 };
 const RIVALES = ['Los Tigres de Prueba', 'Las Panteras de Prueba', 'Atlético Prueba', 'Unión Test', 'Sporting Casos', 'Real Ensayo', 'Juventud Demo', 'Los Lobos de Prueba'];
 
-// ---------- 1) La API tiene que estar apagada (si no, pisaria estos datos con los que tiene en memoria) ----------
-const puertoOcupado = (port) => new Promise(res => {
-    const s = net.connect(port, '127.0.0.1');
-    s.once('connect', () => { s.destroy(); res(true); });
-    s.once('error', () => res(false));
-});
-if (!process.env.SIN_CHEQUEO_API && await puertoOcupado(Number(process.env.PORT || 4000))) {
-    console.error('La API está corriendo en el puerto 4000. Apagala (Ctrl+C en la terminal de npm run dev), corré este script y volvé a levantarla.');
-    process.exit(1);
-}
+// ---------- 1) Copia de la base ----------
+const { migrar, copiarBase, cerrar, q, tx, DB_FILE } = await import('./db/index.js');
+await migrar();
+const backup = path.join(path.dirname(DB_FILE), `backup-casos-${Date.now()}.db`);
+await copiarBase(backup);
+console.log('Copia de la base en', backup);
 
-// ---------- 2) Backup ----------
-const backup = `./databases/backup-casos-${Date.now()}`;
-fs.mkdirSync(backup, { recursive: true });
-for (const f of fs.readdirSync('./databases').filter(f => f.endsWith('.json'))) fs.copyFileSync(`./databases/${f}`, `${backup}/${f}`);
-console.log('Backup en', backup);
-
-const I = await import('./manager/instances.js');
 const { torneosManager, equiposManager, partidosManager, fechasManager, usuariosManager, organizadoresManager,
-    clubesManager, amistososManager, multasManager, inscripcionesManager } = I;
+    clubesManager, amistososManager, multasManager } = await import('./manager/instances.js');
 const { procesarVencimientos } = await import('./services/vencimientosService.js');
 const { vencimientoPago } = await import('./manager/fechasManager.js');
 
-const guardarEquipos = () => fs.promises.writeFile('./databases/equipos.json', JSON.stringify(equiposManager.equipos));
-const guardarPartidos = () => fs.promises.writeFile('./databases/partidos.json', JSON.stringify(partidosManager.partidos));
-
-// ---------- 3) Borrar los casos de una corrida anterior ----------
+// ---------- 2) Borrar los casos de una corrida anterior ----------
 const emails = Object.values(CUENTAS).map(c => c.email);
-const usuariosViejos = usuariosManager.usuarios.filter(u => emails.includes(u.email)).map(u => u.id);
+const ids = (filas) => filas.map(f => f.id);
+const algo = (l) => (l.length ? l : ['-']); // "in ()" vacio no es SQL valido
+const usuariosViejos = ids(await q().selectFrom('usuarios').select('id').where('email', 'in', emails).execute());
 if (usuariosViejos.length) {
-    const orgs = organizadoresManager.organizadores.filter(o => usuariosViejos.includes(o.ownerId)).map(o => o.id);
-    const clubs = clubesManager.clubes.filter(c => usuariosViejos.includes(c.ownerId)).map(c => c.id);
-    const tors = torneosManager.torneos.filter(t => orgs.includes(t.organizadorId)).map(t => t.id);
+    const orgs = ids(await q().selectFrom('organizadores').select('id').where('ownerId', 'in', usuariosViejos).execute());
+    const clubs = ids(await q().selectFrom('clubes').select('id').where('ownerId', 'in', usuariosViejos).execute());
+    const tors = ids(await q().selectFrom('torneos').select('id').where('organizadorId', 'in', algo(orgs)).execute());
+    const fechas = ids(await q().selectFrom('fechas').select('id').where('tor_id', 'in', algo(tors)).execute());
+    // Los amistosos de estos torneos y los que tomaron estos clubes (aunque sean de otro torneo)
+    const amis = (await q().selectFrom('amistosos').select(['id', 'tor_id', 'rival']).execute())
+        .filter(a => tors.includes(a.tor_id) || clubs.includes(JSON.parse(a.rival ?? 'null')?.clubId));
 
-    torneosManager.torneos = torneosManager.torneos.filter(t => !tors.includes(t.id));
-    equiposManager.equipos = equiposManager.equipos.filter(e => !tors.includes(e.tor_id));
-    partidosManager.partidos = partidosManager.partidos.filter(p => !tors.includes(p.tor_id));
-    fechasManager.fechas = fechasManager.fechas.filter(f => !tors.includes(f.tor_id));
-    amistososManager.amistosos = amistososManager.amistosos.filter(a => !tors.includes(a.tor_id) && !clubs.includes(a.rival?.clubId));
-    multasManager.multas = multasManager.multas.filter(m => !tors.includes(m.tor_id) && !clubs.includes(m.clubId));
-    inscripcionesManager.inscripciones = inscripcionesManager.inscripciones.filter(i => !tors.includes(i.torId) && !clubs.includes(i.clubId));
-    clubesManager.clubes = clubesManager.clubes.filter(c => !clubs.includes(c.id));
-    organizadoresManager.organizadores = organizadoresManager.organizadores.filter(o => !orgs.includes(o.id));
-    usuariosManager.usuarios = usuariosManager.usuarios.filter(u => !usuariosViejos.includes(u.id));
-
-    await Promise.all([torneosManager.save(), guardarEquipos(), guardarPartidos(), fechasManager.save(), amistososManager.save(),
-        multasManager.save(), inscripcionesManager.save(), clubesManager.save(), organizadoresManager.save(), usuariosManager.save()]);
+    await tx(async () => {
+        await q().deleteFrom('fecha_pagos').where('fechaId', 'in', algo(fechas)).execute();
+        await q().deleteFrom('fechas').where('id', 'in', algo(fechas)).execute();
+        await q().deleteFrom('partidos').where('tor_id', 'in', algo(tors)).execute();
+        await q().deleteFrom('equipos').where('tor_id', 'in', algo(tors)).execute();
+        await q().deleteFrom('amistosos').where('id', 'in', algo(ids(amis))).execute();
+        await q().deleteFrom('multas').where((eb) => eb.or([eb('tor_id', 'in', algo(tors)), eb('clubId', 'in', algo(clubs))])).execute();
+        await q().deleteFrom('inscripciones').where((eb) => eb.or([eb('torId', 'in', algo(tors)), eb('clubId', 'in', algo(clubs))])).execute();
+        await q().deleteFrom('torneos').where('id', 'in', algo(tors)).execute();
+        await q().deleteFrom('club_jugadores').where('clubId', 'in', algo(clubs)).execute();
+        await q().deleteFrom('clubes').where('id', 'in', algo(clubs)).execute();
+        await q().deleteFrom('organizadores').where('id', 'in', algo(orgs)).execute();
+        await q().deleteFrom('usuarios').where('id', 'in', usuariosViejos).execute();
+    });
     console.log(`Borrados los casos anteriores: ${tors.length} torneos, ${clubs.length} equipos, ${usuariosViejos.length} cuentas`);
 }
 
@@ -96,7 +88,7 @@ for (const clave of ['alDia', 'moroso', 'amistosos', 'incompleto']) {
         jugadores: Array.from({ length: c.jugadores }, (_, i) => ({ nombre: 'Jugador', apellido: `${c.equipo.split(' ')[0]} ${i + 1}`, dni: String(++dni), nacimiento: `${new Date().getFullYear() - 22 - i}-01-01` })),
     });
     if (club.error) throw new Error(`${c.equipo}: ${club.error}`);
-    clubes[clave] = clubesManager.clubes.find(x => x.id === club.id);
+    clubes[clave] = await clubesManager.getRawById(club.id);
 }
 
 // ---------- 5) Ayudas ----------
@@ -104,7 +96,6 @@ const hoy = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Argentina/Buen
 const dias = (n) => { const d = new Date(`${hoy}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
 const DIAS = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 const diaDe = (iso) => DIAS[new Date(`${iso}T12:00:00Z`).getUTCDay()];
-let nTeam = equiposManager.equipos.reduce((m, e) => Math.max(m, parseInt(String(e.id).split('-')[1], 10) || 0), 0);
 
 const REGLAS = {
     multa50: { penalizacion: true, multaTipo: 'porcentaje', multaValor: 50, amistosos: true },
@@ -128,31 +119,26 @@ const torneo = async (nombre, { estado = 'en-curso', reglas = REGLAS.multa50, eq
     const creados = [];
     for (const e of equipos) {
         const club = clubes[e];
-        const eq = {
-            id: `TEAM-${++nTeam}`, name: club ? club.nombre : e, logo: club?.logo ?? '', club_id: club?.id ?? null, tor_id: tor.id,
+        creados.push(await equiposManager.addTeam({
+            name: club ? club.nombre : e, logo: club?.logo ?? '', club_id: club?.id ?? null, tor_id: tor.id,
             points: 0, played: 0, wins: 0, draws: 0, losses: 0, goal_difference: 0, goals_for: 0, goals_against: 0,
-        };
-        equiposManager.equipos.push(eq);
-        creados.push(eq);
+        }));
     }
-    await guardarEquipos();
     return { tor, eqs: creados };
 };
 
 // Fecha 1 del torneo (con el fixture del metodo del circulo: se enfrentan 1º vs ultimo, 2º vs anteultimo...)
 const fecha = async (tor, dia = dias(5)) => {
-    const f = await fechasManager.crear(torneosManager.getTorneoById(tor.id), { dia: dia < dias(3) ? dias(3) : dia, inicio: '18:00', fin: '23:00', canchas: 3 });
+    const f = await fechasManager.crear(await torneosManager.getTorneoById(tor.id), { dia: dia < dias(3) ? dias(3) : dia, inicio: '18:00', fin: '23:00', canchas: 3 });
     if (f.error) throw new Error(tor.nombre + ': ' + f.error);
-    const raw = fechasManager.getById(f.id);
+    let raw = await fechasManager.getById(f.id);
     if (dia < dias(3)) { // fechas muy cercanas (caso "vence hoy"): se corren despues de crearlas
         const delta = new Date(`${dia}T12:00:00Z`) - new Date(`${raw.dia}T12:00:00Z`);
-        for (const p of partidosManager.partidos.filter(x => x.tor_id === tor.id && x.fecha === raw.numero)) {
-            p.date = new Date(Date.parse(p.date) + delta - 3 * 3600e3).toISOString().slice(0, 19) + '-03:00';
+        for (const p of await partidosManager.getByFecha(tor.id, raw.numero)) {
+            await partidosManager.editMatch(p.id, { date: new Date(Date.parse(p.date) + delta - 3 * 3600e3).toISOString().slice(0, 19) + '-03:00' });
         }
-        raw.dia = dia;
-        raw.vencePago = vencimientoPago(dia);
-        await guardarPartidos();
-        await fechasManager.save();
+        await q().updateTable('fechas').set({ dia, vencePago: vencimientoPago(dia) }).where('id', '=', raw.id).execute();
+        raw = await fechasManager.getById(f.id);
     }
     return raw;
 };
@@ -161,8 +147,7 @@ const pagar = async (raw, eq) => { const r = await fechasManager.pagar(raw.id, e
 
 // Fuerza el vencimiento del plazo de pago y lo procesa (W.O., multas, amistosos segun las reglas)
 const vencer = async (raw) => {
-    raw.vencePago = new Date(Date.now() - 60000).toISOString();
-    await fechasManager.save();
+    await q().updateTable('fechas').set({ vencePago: new Date(Date.now() - 60000).toISOString() }).where('id', '=', raw.id).execute();
     await procesarVencimientos();
 };
 
@@ -209,7 +194,7 @@ const resumen = [];
     const f = await fecha(tor, dias(5));
     await pagar(f, eqs[0]); await pagar(f, eqs[1]); await pagar(f, eqs[2]);
     await vencer(f);
-    const ami = amistososManager.amistosos.find(a => a.tor_id === tor.id);
+    const ami = (await amistososManager.getPublicados(0)).find(a => a.tor_id === tor.id);
     const r = await amistososManager.tomar(ami.id, usuarios.amistosos.id, {});
     if (r.error) throw new Error('tomar amistoso: ' + r.error);
     resumen.push([tor.nombre, 'Al Día gana por W.O. y su amistoso ya lo TOMÓ Amistosos FC (los dos lo ven en "Tu próxima fecha").']);
@@ -267,4 +252,6 @@ console.log('\n=== Cuentas (contraseña de todas: ' + PASSWORD + ') ===');
 console.table(Object.entries(CUENTAS).map(([k, c]) => ({ cuenta: c.email, rol: c.rol, equipo: c.equipo ?? org.nombre })));
 console.log('\n=== Torneos de casos ===');
 for (const [nombre, que] of resumen) console.log(`- ${nombre}\n    ${que}`);
-console.log(`\nDeuda de Deportivo Moroso: $${multasManager.deudaDeClub(clubes.moroso.id)} | Amistosos publicados: ${amistososManager.getPublicados().filter(a => a.organizadorId === org.id).length}`);
+console.log(`\nDeuda de Deportivo Moroso: $${await multasManager.deudaDeClub(clubes.moroso.id)} | Amistosos publicados: ${(await amistososManager.getPublicados()).filter(a => a.organizadorId === org.id).length}`);
+
+await cerrar();

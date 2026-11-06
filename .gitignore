@@ -30,3 +30,8 @@ uploads/
 
 # backups que generan seed.mjs y casos-prueba.mjs (tienen datos personales y hashes de contraseñas)
 databases/backup-*/
+
+# base SQLite (datos de prueba en local: tiene hashes de contraseñas y datos personales)
+databases/*.db
+databases/*.db-wal
+databases/*.db-shm

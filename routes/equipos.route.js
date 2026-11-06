@@ -1,37 +1,19 @@
-import { fail } from '../middleware/errores.js';
-import { Router } from "express";
-import { equiposManager as manager } from "../manager/instances.js";
+import { Router } from '../middleware/router.js';
+import { equiposManager as manager } from '../manager/instances.js';
+
 const router = Router();
-let equipos = manager.getEquipos();
 
-router.get('/', (req, res) => {
-    try {
-        res.json(equipos);
-    } catch(err) {
-        fail(res, err);
-    }
-})
+router.get('/', async (req, res) => {
+    res.json(await manager.getEquipos());
+});
 
-router.get('/equipo/:teamId', (req, res) => {
-    try {
-        const { teamId } = req.params;
+router.get('/equipo/:teamId', async (req, res) => {
+    res.json(await manager.getEquipoById(req.params.teamId));
+});
 
-        res.json(manager.getEquipoById(teamId));
-    } catch (err) {
-        fail(res, err);
-    }
-})
-
-router.get('/torneo/:torId', (req, res) => {
-    try {
-        const { torId } = req.params;
-
-        res.json(manager.getEquiposByTournament(torId));
-    } catch (err) {
-        fail(res, err);
-    }
-})
-
+router.get('/torneo/:torId', async (req, res) => {
+    res.json(await manager.getEquiposByTournament(req.params.torId));
+});
 
 // Alta, edicion y baja: no se exponen. Los equipos entran por la inscripcion (/inscripciones)
 // y se editan desde el equipo del capitan (/clubes); las estadisticas las calcula el servidor.

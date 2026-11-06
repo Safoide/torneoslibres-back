@@ -1,5 +1,6 @@
-import fs from 'fs'
-import { byId, errorMessages, formatId } from '../assets.js';
+import { errorMessages, formatId } from '../assets.js';
+import { q, tx, porId, siguienteId } from '../db/index.js';
+import { aFila, deFila, deFilas } from '../db/filas.js';
 
 export const MODALIDADES = ['f5', 'f7', 'f8', 'f11'];
 export const CATEGORIAS = ['masculino', 'femenino', 'mixto'];
@@ -114,54 +115,30 @@ const toList = (value) => {
 };
 
 class TorneosManager {
-    constructor(path){
-        this.torneos = []
-        this.path = path
-        this.loaded = false
-    }
-
-    // Carga el JSON una sola vez y despues trabaja en memoria
-    load(){
-        if(!this.loaded){
-            this.torneos = JSON.parse(fs.readFileSync(this.path));
-            this.loaded = true;
-        }
-    }
-
-    save(){
-        return fs.promises.writeFile(this.path, JSON.stringify(this.torneos, null, 4));
-    }
-
-    nextId(){
-        const max = this.torneos.reduce((acc, tor) => {
-            const n = parseInt(String(tor.id).split('-')[1], 10);
-            return Number.isNaN(n) ? acc : Math.max(acc, n);
-        }, 0);
-
-        return formatId('TOR', max + 1);
-    }
-
     // GET
 
-    getTorneos(){
-        this.load();
-        return this.torneos;
+    async getTorneos() {
+        return deFilas('torneos', await porId(q().selectFrom('torneos').selectAll()).execute());
+    }
+
+    async getByOrganizador(orgId) {
+        return deFilas('torneos', await porId(q().selectFrom('torneos').selectAll().where('organizadorId', '=', orgId)).execute());
     }
 
     // Busqueda con filtros. Todos opcionales y combinables:
-    // q, modalidad, zona, categoria, estado, precioMax, desde, hasta, orden
-    searchTorneos(filters = {}){
-        this.load();
-
-        const { q, precioMax, desde, hasta, orden = 'fecha' } = filters;
+    // q, modalidad, zona, categoria, estado, precioMax, desde, hasta, orden.
+    // Se filtra en JS (no en SQL) para comparar sin acentos ("Núñez" == "nunez") igual en SQLite y PostgreSQL;
+    // con muchos miles de torneos convendria pasar los filtros a la consulta.
+    async searchTorneos(filters = {}) {
+        const { q: texto, precioMax, desde, hasta, orden = 'fecha' } = filters;
         const modalidades = toList(filters.modalidad);
         const zonas = toList(filters.zona);
         const categorias = toList(filters.categoria);
         const estados = toList(filters.estado);
         const organizadorIds = toList(filters.organizadorId);
-        const text = normalize(q);
+        const text = normalize(texto);
 
-        let result = this.torneos.filter(tor => {
+        let result = (await this.getTorneos()).filter(tor => {
             if (modalidades.length && !modalidades.includes(normalize(tor.modalidad))) return false;
             if (zonas.length && !zonas.includes(normalize(tor.zona))) return false;
             if (categorias.length && !categorias.includes(normalize(tor.categoria))) return false;
@@ -183,12 +160,12 @@ class TorneosManager {
         const byDate = (a, b) => a.fechaInicio.localeCompare(b.fechaInicio);
 
         if (orden === 'precio') {
-            result = [...result].sort((a, b) => a.precioInscripcion - b.precioInscripcion || byDate(a, b));
+            result = result.sort((a, b) => a.precioInscripcion - b.precioInscripcion || byDate(a, b));
         } else if (orden === 'nombre') {
-            result = [...result].sort((a, b) => a.nombre.localeCompare(b.nombre));
+            result = result.sort((a, b) => a.nombre.localeCompare(b.nombre));
         } else {
             // Por fecha: los finalizados quedan al final
-            result = [...result].sort((a, b) =>
+            result = result.sort((a, b) =>
                 (a.estado === 'finalizado') - (b.estado === 'finalizado') || byDate(a, b));
         }
 
@@ -196,78 +173,65 @@ class TorneosManager {
     }
 
     // Valores disponibles para armar los filtros del front
-    getFiltros(){
-        this.load();
-
-        const zonas = [...new Set(this.torneos.map(tor => tor.zona))]
-            .sort((a, b) => a.localeCompare(b));
+    async getFiltros() {
+        const filas = await q().selectFrom('torneos').select('zona').distinct().execute();
+        const zonas = filas.map(f => f.zona).filter(Boolean).sort((a, b) => a.localeCompare(b));
 
         return { modalidades: MODALIDADES, categorias: CATEGORIAS, estados: ESTADOS, zonas };
     }
 
-    getTorneoById(torId){
-        this.load();
+    async getTorneoById(torId) {
+        const fila = await q().selectFrom('torneos').selectAll().where('id', '=', String(torId ?? '')).executeTakeFirst();
 
-        let torById = this.torneos.find(byId(torId))
-
-        if(!torById) return {error: errorMessages.tor_wrongId};
-
-        return torById;
+        return fila ? deFila('torneos', fila) : { error: errorMessages.tor_wrongId };
     }
 
     // POST
 
     async addTor(newTor) {
-        this.load();
-
         const error = this.validate(newTor);
-        if(error) return {error};
+        if (error) return { error };
 
-        newTor = {
-            ...newTor,
-            id: this.nextId(),
-        }
-
-        this.torneos.push(newTor);
-
-        await this.save();
-
-        return newTor;
+        return tx(async () => {
+            const tor = { ...newTor, id: formatId('TOR', await siguienteId('torneos', 'TOR')) };
+            await q().insertInto('torneos').values(aFila('torneos', tor)).execute();
+            return this.getTorneoById(tor.id);
+        });
     }
 
     // PUT
 
     async editTor(torId, modifiedTor) {
-        this.load();
+        const actual = await this.getTorneoById(torId);
+        if (actual.error) return actual;
 
-        let indexById = this.torneos.findIndex(byId(torId));
+        const error = this.validate({ ...actual, ...modifiedTor });
+        if (error) return { error };
 
-        if(indexById === -1) return {error: errorMessages.tor_wrongId};
+        const cambios = aFila('torneos', { ...modifiedTor, id: undefined });
+        if (Object.keys(cambios).length) await q().updateTable('torneos').set(cambios).where('id', '=', torId).execute();
 
-        const merged = { ...this.torneos[indexById], ...modifiedTor, id: torId };
+        return this.getTorneoById(torId);
+    }
 
-        const error = this.validate(merged);
-        if(error) return {error};
-
-        this.torneos[indexById] = merged;
-
-        await this.save();
-
-        return merged;
+    // Suma un equipo inscripto solo si queda cupo (en una sola consulta: dos pagos a la vez no pueden pasarse del cupo).
+    // Devuelve true si se sumo.
+    async sumarInscripto(torId) {
+        const r = await q().updateTable('torneos')
+            .set((eb) => ({ equiposInscriptos: eb('equiposInscriptos', '+', 1) }))
+            .where('id', '=', torId)
+            .where((eb) => eb('equiposInscriptos', '<', eb.ref('equiposMax')))
+            .executeTakeFirst();
+        return Number(r.numUpdatedRows) === 1;
     }
 
     // DELETE
 
     async deleteTor(torId) {
-        this.load();
+        const r = await q().deleteFrom('torneos').where('id', '=', torId).executeTakeFirst();
+        if (!Number(r.numDeletedRows)) return { error: errorMessages.tor_wrongId };
 
-        if(!this.torneos.find(byId(torId))) return {error: errorMessages.tor_wrongId};
-
-        this.torneos = this.torneos.filter(torneo => torneo.id !== torId);
-
-        await this.save();
-
-        return this.torneos;
+        return { ok: true };
     }
 
     // Valida y limpia los campos que puede mandar un organizador (nunca se copia el body entero).

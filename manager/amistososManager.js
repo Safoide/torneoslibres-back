@@ -1,24 +1,19 @@
-import fs from 'fs';
 import { randomUUID } from 'crypto';
-import { byId } from '../assets.js';
+import { q } from '../db/index.js';
+import { aFila, deFila, deFilas } from '../db/filas.js';
 import { clubesManager, multasManager } from './instances.js';
 import { cobrar } from '../services/pagosService.js';
 
 const MIN_JUGADORES = { f5: 5, f7: 7, f8: 8, f11: 11 };
 export const DESCUENTO_AMISTOSO = 0.5; // el amistoso express se publica a mitad de precio de la fecha
 
+const porFecha = (a, b) => a.date.localeCompare(b.date);
+
 // Amistosos express: cuando un equipo no paga su fecha a tiempo pierde por W.O. y su lugar se publica
 // como amistoso (misma fecha, hora y cancha) para que el equipo que si pago pueda jugar igual.
 class AmistososManager {
-    constructor(path) {
-        this.path = path;
-        if (!fs.existsSync(path)) fs.writeFileSync(path, '[]');
-        this.amistosos = JSON.parse(fs.readFileSync(path));
+    constructor() {
         this.procesando = new Set(); // evita cobrar dos veces si se toca "Pagar" dos veces
-    }
-
-    save() {
-        return fs.promises.writeFile(this.path, JSON.stringify(this.amistosos, null, 4));
     }
 
     // Lo que ve cualquiera: sin ids de cuentas ni datos del pago
@@ -30,31 +25,41 @@ class AmistososManager {
         };
     }
 
-    getById(id) {
-        return this.amistosos.find(byId(id)) || null;
+    async getById(id) {
+        const fila = await q().selectFrom('amistosos').selectAll().where('id', '=', String(id ?? '')).executeTakeFirst();
+        return fila ? deFila('amistosos', fila) : null;
     }
 
-    getByPartido(partidoId) {
-        return this.amistosos.find(a => a.partido_id === partidoId) || null;
+    async getByPartido(partidoId) {
+        const fila = await q().selectFrom('amistosos').selectAll().where('partido_id', '=', partidoId).executeTakeFirst();
+        return fila ? deFila('amistosos', fila) : null;
+    }
+
+    // Amistosos tomados de varios torneos (panel del organizador)
+    async tomadosDeTorneos(torIds) {
+        if (!torIds.length) return [];
+        return deFilas('amistosos', await q().selectFrom('amistosos').selectAll()
+            .where('tor_id', 'in', torIds).where('estado', '=', 'tomado').execute());
     }
 
     // Publicados que todavia no empezaron, los mas cercanos primero
-    getPublicados(ahora = Date.now()) {
-        return this.amistosos
-            .filter(a => a.estado === 'publicado' && Date.parse(a.date) > ahora)
-            .sort((a, b) => a.date.localeCompare(b.date));
+    async getPublicados(ahora = Date.now()) {
+        const filas = await q().selectFrom('amistosos').selectAll().where('estado', '=', 'publicado').execute();
+        return deFilas('amistosos', filas).filter(a => Date.parse(a.date) > ahora).sort(porFecha);
     }
 
     // Amistosos que tomo un club (como rival) y todavia no terminaron
-    tomadosPor(clubId, ahora = Date.now()) {
-        return this.amistosos
-            .filter(a => a.estado === 'tomado' && a.rival?.clubId === clubId && Date.parse(a.date) + 3 * 3600e3 > ahora)
-            .sort((a, b) => a.date.localeCompare(b.date));
+    async tomadosPor(clubId, ahora = Date.now()) {
+        const filas = await q().selectFrom('amistosos').selectAll().where('estado', '=', 'tomado').execute();
+        return deFilas('amistosos', filas)
+            .filter(a => a.rival?.clubId === clubId && Date.parse(a.date) + 3 * 3600e3 > ahora)
+            .sort(porFecha);
     }
 
     // Lo arma el servidor al procesar un vencimiento (nunca viene del cliente)
     async publicar({ tor, fecha, partido, anfitrion, ausente }) {
-        if (this.getByPartido(partido.id)) return this.getByPartido(partido.id);
+        const existente = await this.getByPartido(partido.id);
+        if (existente) return existente;
 
         const nuevo = {
             id: `AMI-${randomUUID().slice(0, 8)}`,
@@ -72,24 +77,26 @@ class AmistososManager {
             creado: new Date().toISOString(),
         };
 
-        this.amistosos.push(nuevo);
-        await this.save();
+        // Un amistoso por partido (ON CONFLICT no corta la transaccion de vencimientos)
+        const r = await q().insertInto('amistosos').values(aFila('amistosos', nuevo))
+            .onConflict((oc) => oc.column('partido_id').doNothing())
+            .executeTakeFirst();
 
-        return nuevo;
+        return Number(r.numInsertedOrUpdatedRows) ? nuevo : this.getByPartido(partido.id);
     }
 
     // Un capitan toma el amistoso pagando el precio con descuento
     async tomar(id, ownerId, { metodo = 'tarjeta', simular } = {}) {
-        const a = this.getById(id);
+        const a = await this.getById(id);
         if (!a) return { error: 'No encontramos ese amistoso' };
         if (a.estado === 'tomado') return a.rival?.ownerId === ownerId ? this.publico(a) : { error: 'Otro equipo ya tomó este amistoso' };
         if (Date.parse(a.date) <= Date.now()) return { error: 'El amistoso ya empezó' };
 
-        const club = clubesManager.getRawByOwner(ownerId);
+        const club = await clubesManager.getRawByOwner(ownerId);
         if (!club) return { error: 'Primero tenés que crear tu equipo' };
         if (club.id === a.anfitrion.clubId) return { error: 'Este amistoso es de tu propio equipo: compartí el link para que lo tome otro' };
         if (club.id === a.ausenteClubId) return { error: 'Tu equipo no se presentó a este partido: no puede tomar el amistoso' };
-        const bloqueo = multasManager.bloqueo(club.id);
+        const bloqueo = await multasManager.bloqueo(club.id);
         if (bloqueo) return { error: bloqueo, multasPendientes: true };
 
         const min = MIN_JUGADORES[a.modalidad] ?? 0;
@@ -104,12 +111,17 @@ class AmistososManager {
             const r = await cobrar({ monto: a.precio, metodo: metodo === 'mercadopago' ? 'mercadopago' : 'tarjeta', simular });
             if (!r.ok) return { error: r.motivo };
 
-            a.estado = 'tomado';
-            a.rival = { clubId: club.id, ownerId, name: club.nombre, logo: club.logo ?? '' };
-            a.pago = { id: r.id, metodo: r.metodo, monto: r.monto, fecha: new Date().toISOString() };
-            await this.save();
+            const cambios = {
+                estado: 'tomado',
+                rival: { clubId: club.id, ownerId, name: club.nombre, logo: club.logo ?? '' },
+                pago: { id: r.id, metodo: r.metodo, monto: r.monto, fecha: new Date().toISOString() },
+            };
+            // Solo si sigue publicado (nadie lo tomo mientras se cobraba)
+            const act = await q().updateTable('amistosos').set(aFila('amistosos', cambios))
+                .where('id', '=', id).where('estado', '=', 'publicado').executeTakeFirst();
+            if (!Number(act.numUpdatedRows)) return { error: 'Otro equipo ya tomó este amistoso' };
 
-            return this.publico(a);
+            return this.publico({ ...a, ...cambios });
         } finally {
             this.procesando.delete(id);
         }

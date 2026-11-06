@@ -17,6 +17,11 @@ import authRouter from "./routes/auth.route.js";
 import amistososRouter from "./routes/amistosos.route.js";
 import multasRouter from "./routes/multas.route.js";
 import { procesarVencimientos } from "./services/vencimientosService.js";
+import { migrar, copiarBase, DB_FILE } from "./db/index.js";
+
+// Crea o actualiza la estructura de la base antes de atender pedidos (en produccion arranca vacia)
+await migrar();
+console.log("Base de datos: " + DB_FILE);
 
 const app = express();
 const port = process.env.PORT || 4000; // en el hosting (Render, etc.) el puerto lo asigna el servicio
@@ -72,3 +77,8 @@ app.listen(port, process.env.HOST || undefined, () => {
 const vencer = () => procesarVencimientos().catch(err => console.error('Error procesando vencimientos:', err));
 vencer();
 setInterval(vencer, 60 * 1000);
+
+// Copia consistente de la base cada hora (el backup diario del servidor se la lleva junto con DATA_DIR)
+const copiar = () => copiarBase().catch(err => console.error('Error copiando la base:', err));
+copiar();
+setInterval(copiar, 60 * 60 * 1000);

@@ -1,4 +1,5 @@
 import { equiposManager, partidosManager } from '../manager/instances.js';
+import { tx } from '../db/index.js';
 
 // Fixture "todos contra todos" (metodo del circulo): devuelve la lista de fechas, cada una con sus partidos [local, visita].
 // Con cantidad impar de equipos, a uno le toca libre en cada fecha.
@@ -25,9 +26,9 @@ export const rondasDe = (equipos) => {
 // Recalcula la tabla de posiciones de un torneo a partir de los partidos con resultado.
 // W.O. simple: ya tiene el 3-0 cargado y cuenta como cualquier resultado.
 // W.O. doble (no pago ninguno): los dos suman un partido perdido, sin goles ni puntos.
-export const recalcularTabla = async (torId) => {
-    const equipos = equiposManager.getEquipos().filter(e => e.tor_id === torId);
-    const delTorneo = partidosManager.getPartidos().filter(p => p.tor_id === torId);
+export const recalcularTabla = (torId) => tx(async () => {
+    const equipos = await equiposManager.getByTorneo(torId);
+    const delTorneo = await partidosManager.getByTorneo(torId);
     const jugados = delTorneo.filter(p => p.home_goals !== null && p.away_goals !== null);
 
     const tabla = new Map(equipos.map(e => [e.id, {
@@ -52,4 +53,4 @@ export const recalcularTabla = async (torId) => {
     }
 
     for (const [id, stats] of tabla) await equiposManager.editTeam(id, stats);
-};
+});

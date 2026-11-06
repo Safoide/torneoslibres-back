@@ -1,30 +1,23 @@
-import fs from 'fs';
 import { randomUUID } from 'crypto';
+import { q, tx } from '../db/index.js';
+import { aFila, deFila, deFilas } from '../db/filas.js';
 import { cobrar } from '../services/pagosService.js';
 
 // Multas por no pagar una fecha a tiempo (si el torneo tiene la penalizacion activada).
 // Quedan como deuda del equipo (club del capitan): hasta saldarla no puede pagar fechas,
 // inscribirse en torneos ni tomar amistosos.
 class MultasManager {
-    constructor(path) {
-        this.path = path;
-        if (!fs.existsSync(path)) fs.writeFileSync(path, '[]');
-        this.multas = JSON.parse(fs.readFileSync(path));
+    constructor() {
         this.procesando = new Set(); // evita cobrar dos veces si se toca "Pagar" dos veces
-    }
-
-    save() {
-        return fs.promises.writeFile(this.path, JSON.stringify(this.multas, null, 4));
     }
 
     publico({ pago, ...m }) {
         return { ...m, pagada: pago ? { fecha: pago.fecha, monto: pago.monto } : null };
     }
 
-    // La crea el servidor al procesar un vencimiento (nunca viene del cliente)
+    // La crea el servidor al procesar un vencimiento (nunca viene del cliente). null si no corresponde o ya existia
     async crear({ tor, fecha, equipo, monto }) {
         if (!monto || monto <= 0) return null;
-        if (this.multas.some(m => m.fecha_id === fecha.id && m.equipoId === equipo.id)) return null; // ya existe
 
         const nueva = {
             id: `MUL-${randomUUID().slice(0, 8)}`,
@@ -37,23 +30,36 @@ class MultasManager {
             creada: new Date().toISOString(),
         };
 
-        this.multas.push(nueva);
-        await this.save();
+        // Una multa por equipo y fecha: si ya existe no se crea otra (ON CONFLICT no corta la transaccion de vencimientos)
+        const r = await q().insertInto('multas').values(aFila('multas', nueva))
+            .onConflict((oc) => oc.columns(['fecha_id', 'equipoId']).doNothing())
+            .executeTakeFirst();
 
-        return nueva;
+        return Number(r.numInsertedOrUpdatedRows) ? nueva : null;
     }
 
-    pendientesDeClub(clubId) {
-        return clubId ? this.multas.filter(m => m.clubId === clubId && m.estado === 'pendiente') : [];
+    async getDe(fechaId, equipoId) {
+        const fila = await q().selectFrom('multas').selectAll().where('fecha_id', '=', fechaId).where('equipoId', '=', equipoId).executeTakeFirst();
+        return fila ? deFila('multas', fila) : null;
     }
 
-    deudaDeClub(clubId) {
-        return this.pendientesDeClub(clubId).reduce((s, m) => s + m.monto, 0);
+    async getByTorneos(torIds) {
+        return torIds.length ? deFilas('multas', await q().selectFrom('multas').selectAll().where('tor_id', 'in', torIds).execute()) : [];
+    }
+
+    async pendientesDeClub(clubId) {
+        if (!clubId) return [];
+        return deFilas('multas', await q().selectFrom('multas').selectAll()
+            .where('clubId', '=', clubId).where('estado', '=', 'pendiente').orderBy('creada').execute());
+    }
+
+    async deudaDeClub(clubId) {
+        return (await this.pendientesDeClub(clubId)).reduce((s, m) => s + m.monto, 0);
     }
 
     // Mensaje de error si el club tiene deuda (para bloquear pagos e inscripciones), o null
-    bloqueo(clubId) {
-        const deuda = this.deudaDeClub(clubId);
+    async bloqueo(clubId) {
+        const deuda = await this.deudaDeClub(clubId);
         if (!deuda) return null;
         const pesos = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(deuda);
         return `Tu equipo tiene multas pendientes por ${pesos}. Pagalas primero desde "Tu próxima fecha".`;
@@ -61,9 +67,9 @@ class MultasManager {
 
     // Paga todas las multas pendientes del club en un solo cobro
     async pagarTodas(clubId, { metodo = 'tarjeta', simular } = {}) {
-        const pendientes = this.pendientesDeClub(clubId);
-        if (!pendientes.length) return { error: 'No tenés multas pendientes' };
         if (this.procesando.has(clubId)) return { error: 'El pago ya se está procesando' };
+        const pendientes = await this.pendientesDeClub(clubId);
+        if (!pendientes.length) return { error: 'No tenés multas pendientes' };
 
         this.procesando.add(clubId);
 
@@ -73,11 +79,14 @@ class MultasManager {
             if (!r.ok) return { error: r.motivo };
 
             const fecha = new Date().toISOString();
-            for (const m of pendientes) {
-                m.estado = 'pagada';
-                m.pago = { id: r.id, metodo: r.metodo, monto: m.monto, fecha };
-            }
-            await this.save();
+            await tx(async () => {
+                for (const m of pendientes) {
+                    m.estado = 'pagada';
+                    m.pago = { id: r.id, metodo: r.metodo, monto: m.monto, fecha };
+                    await q().updateTable('multas').set(aFila('multas', { estado: m.estado, pago: m.pago }))
+                        .where('id', '=', m.id).where('estado', '=', 'pendiente').execute();
+                }
+            });
 
             return { ok: true, total, multas: pendientes.map(m => this.publico(m)) };
         } finally {
