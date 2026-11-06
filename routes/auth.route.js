@@ -1,7 +1,8 @@
 import { Router } from '../middleware/router.js';
 import { usuariosManager as manager, clubesManager, organizadoresManager } from '../manager/instances.js';
 import { requireAuth, signToken } from '../middleware/auth.js';
-import { limiteLoginIp, limiteLoginEmail, limiteRegistro } from '../middleware/limites.js';
+import { limiteLoginIp, limiteLoginEmail, limiteRegistro, limiteGoogle } from '../middleware/limites.js';
+import { verificarGoogle } from '../services/googleService.js';
 
 const router = Router();
 
@@ -17,6 +18,23 @@ router.post('/login', limiteLoginIp, limiteLoginEmail, async (req, res) => {
     if (user.error) return res.status(401).json(user);
 
     res.json({ user, token: await signToken(user) });
+});
+
+// Entrar o registrarse con Google. body: { credential, rol? }
+// credential = el access token que Google le da al front con nuestro boton (ver services/googleService.js). Si la cuenta no existe y no viene rol, responde
+// { necesitaRol: true, email, nombre } para que el front pregunte el tipo de cuenta y reenvie el mismo credential.
+router.post('/google', limiteGoogle, async (req, res) => {
+    const perfil = await verificarGoogle(req.body?.credential);
+    if (perfil.error) return res.status(perfil.status ?? 400).json({ error: perfil.error });
+
+    const r = await manager.entrarConGoogle(perfil, req.body?.rol);
+    if (r.error) return res.status(400).json(r);
+    if (r.necesitaRol) return res.json(r);
+
+    res.status(r.nueva ? 201 : 200).json({
+        user: r.user, token: await signToken(r.user),
+        nueva: !!r.nueva, vinculada: !!r.vinculada, passwordBorrada: !!r.passwordBorrada,
+    });
 });
 
 router.get('/me', requireAuth, async (req, res) => {
@@ -62,7 +80,8 @@ router.post('/logout-all', requireAuth, async (req, res) => {
 // el equipo del capitan o la organizacion del organizador (con sus torneos).
 // Si eso no se puede (equipo anotado en un torneo sin terminar, organizacion con equipos inscriptos), no se borra nada.
 router.delete('/me', requireAuth, async (req, res) => {
-    const check = await manager.confirmarPassword(req.userId, req.body?.password);
+    // Con contraseña o, si la cuenta entra solo con Google, volviendo a confirmar con Google (credential)
+    const check = await manager.confirmarIdentidad(req.userId, { password: req.body?.password, credential: req.body?.credential });
     if (check.error) return res.status(400).json(check);
 
     if (req.rol === 'capitan') {

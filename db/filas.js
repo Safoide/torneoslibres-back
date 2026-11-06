@@ -2,7 +2,7 @@
 // Por tabla: columnas, cuáles guardan un objeto como texto JSON y cuáles son si/no (0/1).
 
 const T = {
-    usuarios: { cols: ['id', 'nombre', 'email', 'passwordHash', 'rol', 'creado', 'tokenVersion'] },
+    usuarios: { cols: ['id', 'nombre', 'email', 'passwordHash', 'rol', 'creado', 'tokenVersion', 'googleId', 'emailVerificado'], bool: ['emailVerificado'] },
     organizadores: { cols: ['id', 'nombre', 'zona', 'descripcion', 'instagram', 'whatsapp', 'logo', 'ownerId', 'creada'] },
     clubes: { cols: ['id', 'nombre', 'logo', 'whatsapp', 'ownerId', 'creado'] },
     club_jugadores: { cols: ['clubId', 'orden', 'nombre', 'apellido', 'dni', 'nacimiento'] },

@@ -5,6 +5,7 @@ import { Kysely, SqliteDialect } from 'kysely';
 import { Migrator } from 'kysely/migration';
 import { DATA_DIR } from '../config.js';
 import * as m001 from './migraciones/001-inicial.js';
+import * as m002 from './migraciones/002-login-google.js';
 
 // Base de datos: SQLite (un archivo en DATA_DIR) a través de Kysely.
 // Kysely arma las consultas: para pasar a PostgreSQL se cambia el dialecto de acá (y poco más),
@@ -34,7 +35,7 @@ export const tx = (fn) => actual.getStore()
 // ---------- Migraciones ----------
 // Cada cambio de estructura va en un archivo nuevo de db/migraciones/ (nunca editar uno ya publicado)
 // y se agrega a esta lista. Corren solas al arrancar la API: en produccion la base arranca vacia.
-const MIGRACIONES = { '001-inicial': m001 };
+const MIGRACIONES = { '001-inicial': m001, '002-login-google': m002 };
 
 export const migrar = async () => {
     const migrator = new Migrator({ db, provider: { getMigrations: async () => MIGRACIONES } });

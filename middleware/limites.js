@@ -45,3 +45,11 @@ export const limiteUploads = limite({
     keyGenerator: (req) => `user:${req.userId}`,
     mensaje: 'Subiste demasiadas imágenes. Probá de nuevo en una hora.',
 });
+
+// Entrar con Google: cada pedido trae un token firmado por Google (no se puede adivinar),
+// pero igual se pone un tope por IP para que no se use para crear cuentas en masa
+export const limiteGoogle = limite({
+    ventana: 15 * MIN, max: 30,
+    keyGenerator: (req) => ipKeyGenerator(req.ip),
+    mensaje: 'Demasiados intentos de ingreso. Probá de nuevo en 15 minutos.',
+});
