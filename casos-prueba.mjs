@@ -1,5 +1,5 @@
 // Casos de prueba de pagos de fechas, penalizaciones, multas y amistosos express.
-// Crea cuentas de prueba (organizador + capitanes) y 10 torneos, cada uno armado para un caso.
+// Crea cuentas de prueba (organizador + capitanes) y 12 torneos, cada uno armado para un caso.
 // Se puede correr las veces que haga falta: borra los casos de la corrida anterior y los vuelve a crear.
 // No toca el resto de los datos. Antes de escribir hace una copia de la base en databases/backup-casos-<fecha>.db.
 //
@@ -131,16 +131,19 @@ const torneo = async (nombre, { estado = 'en-curso', reglas = REGLAS.multa50, eq
 const fecha = async (tor, dia = dias(5)) => {
     const f = await fechasManager.crear(await torneosManager.getTorneoById(tor.id), { dia: dia < dias(3) ? dias(3) : dia, inicio: '18:00', fin: '23:00', canchas: 3 });
     if (f.error) throw new Error(tor.nombre + ': ' + f.error);
-    let raw = await fechasManager.getById(f.id);
-    if (dia < dias(3)) { // fechas muy cercanas (caso "vence hoy"): se corren despues de crearlas
-        const delta = new Date(`${dia}T12:00:00Z`) - new Date(`${raw.dia}T12:00:00Z`);
-        for (const p of await partidosManager.getByFecha(tor.id, raw.numero)) {
-            await partidosManager.editMatch(p.id, { date: new Date(Date.parse(p.date) + delta - 3 * 3600e3).toISOString().slice(0, 19) + '-03:00' });
-        }
-        await q().updateTable('fechas').set({ dia, vencePago: vencimientoPago(dia) }).where('id', '=', raw.id).execute();
-        raw = await fechasManager.getById(f.id);
+    const raw = await fechasManager.getById(f.id);
+    // fechas muy cercanas (caso "vence hoy"): se corren despues de crearlas
+    return dia < dias(3) ? moverA(raw, dia) : raw;
+};
+
+// Corre una fecha (y sus partidos) a otro dia, salteando la anticipacion minima. Sirve para fechas cercanas o ya jugadas
+const moverA = async (raw, dia) => {
+    const delta = new Date(`${dia}T12:00:00Z`) - new Date(`${raw.dia}T12:00:00Z`);
+    for (const p of await partidosManager.getByFecha(raw.tor_id, raw.numero)) {
+        await partidosManager.editMatch(p.id, { date: new Date(Date.parse(p.date) + delta - 3 * 3600e3).toISOString().slice(0, 19) + '-03:00' });
     }
-    return raw;
+    await q().updateTable('fechas').set({ dia, vencePago: vencimientoPago(dia) }).where('id', '=', raw.id).execute();
+    return fechasManager.getById(raw.id);
 };
 
 const pagar = async (raw, eq) => { const r = await fechasManager.pagar(raw.id, eq.id, {}); if (r.error) throw new Error(r.error); };
@@ -232,6 +235,17 @@ const resumen = [];
     const f = await fecha(tor, dias(5));
     await pagar(f, eqs[0]); await pagar(f, eqs[3]);
     resumen.push([tor.nombre, 'Al Día y su rival PAGARON los dos: partido confirmado.']);
+}
+
+// 12. Resultados por cargar: la fecha 1 ya se jugó (hace 2 días) y el organizador todavía no cargó los resultados.
+//     Uno de los rivales no pagó: su partido quedó 0-3 por W.O. y no admite resultado.
+{
+    const { tor, eqs } = await torneo('Casos 12 · Resultados por cargar', { reglas: REGLAS.sinAmistosos, equipos: ['alDia', RIVALES[0], RIVALES[3], RIVALES[5], RIVALES[6], RIVALES[7]] });
+    const f = await fecha(tor, dias(5));
+    for (const eq of eqs.slice(0, 5)) await pagar(f, eq); // el ultimo no paga -> W.O.
+    await vencer(f);
+    await moverA(f, dias(-2));
+    resumen.push([tor.nombre, 'Organizador: la fecha 1 ya se JUGÓ y faltan cargar los RESULTADOS (botón "Cargar resultados" en el fixture). Un partido es W.O. y no se carga.']);
 }
 
 // 9. Inscripción abierta: para inscribirse (Al Día puede; Moroso está bloqueado por la multa; Incompletos no tiene jugadores)

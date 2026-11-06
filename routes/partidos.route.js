@@ -1,9 +1,8 @@
 import { Router } from '../middleware/router.js';
-import { partidosManager as manager } from '../manager/instances.js';
+import { partidosManager as manager, fechasManager } from '../manager/instances.js';
 import { requireAuth, requireRol } from '../middleware/auth.js';
 import { conOrganizacion, miTorneo } from '../middleware/organizador.js';
-import { recalcularTabla } from '../services/fixtureService.js';
-import { tx } from '../db/index.js';
+import { procesarVencimientos } from '../services/vencimientosService.js';
 
 const router = Router();
 
@@ -26,29 +25,23 @@ router.get('/torneo/:torId', async (req, res) => {
 });
 
 // Los partidos se crean y se borran junto con su fecha (/fechas), no de a uno.
-// Cargar el resultado: solo el organizador dueño del torneo, y solo cuando el partido ya empezó.
+// Cargar el resultado de un partido: mismas reglas que PUT /fechas/:id/resultados
+// (organizador dueño, fecha terminada, torneo en curso; se puede corregir hasta que el torneo finaliza).
 router.put('/:matchId', requireAuth, requireRol('organizador'), conOrganizacion, async (req, res) => {
     const partido = await manager.getPartidoById(req.params.matchId);
     if (partido.error) return res.status(404).json(partido);
 
-    const { error, status } = await miTorneo(req, partido.tor_id);
+    const { error, status, tor } = await miTorneo(req, partido.tor_id);
     if (error) return res.status(status).json({ error });
 
-    const local = Number(req.body?.home_goals);
-    const visita = Number(req.body?.away_goals);
-    const valido = (n) => Number.isInteger(n) && n >= 0 && n <= 99;
+    const fecha = await fechasManager.getByNumero(partido.tor_id, partido.fecha);
+    if (!fecha) return res.status(400).json({ error: 'El partido no pertenece a ninguna fecha' });
 
-    if (!valido(local) || !valido(visita)) return res.status(400).json({ error: 'Los goles deben ser números enteros entre 0 y 99' });
-    if (new Date(partido.date).getTime() > Date.now()) return res.status(400).json({ error: 'El partido todavía no se jugó' });
-    if (partido.wo) return res.status(400).json({ error: 'Este partido se definió por W.O. (un equipo no pagó a tiempo): no se puede cargar el resultado' });
+    await procesarVencimientos();
+    const result = await fechasManager.cargarResultados(fecha, tor, [{ id: partido.id, home_goals: req.body?.home_goals, away_goals: req.body?.away_goals }]);
+    if (result.error) return res.status(400).json(result);
 
-    // Solo se toman los goles: nunca se copia el body entero. Resultado y tabla, todo junto
-    const editado = await tx(async () => {
-        const p = await manager.editMatch(partido.id, { home_goals: local, away_goals: visita });
-        await recalcularTabla(partido.tor_id);
-        return p;
-    });
-    res.json(editado);
+    res.json(result.find(p => p.id === partido.id));
 });
 
 export default router;

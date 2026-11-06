@@ -62,6 +62,20 @@ router.post('/', requireAuth, requireRol('organizador'), conOrganizacion, async 
     res.status(result.error ? 400 : 201).json(result);
 });
 
+// Cargar o corregir los resultados de una fecha terminada: solo el organizador dueño, mientras el torneo esté en curso.
+// body: { resultados: [{ id: 'MATCH-1', home_goals: 2, away_goals: 1 }, ...] } (se pueden mandar solo algunos)
+router.put('/:fechaId/resultados', requireAuth, requireRol('organizador'), conOrganizacion, async (req, res) => {
+    const fecha = await fechasManager.getById(req.params.fechaId);
+    if (!fecha) return res.status(404).json({ error: 'No se encontró la fecha' });
+
+    const { error, status, tor } = await miTorneo(req, fecha.tor_id);
+    if (error) return res.status(status).json({ error });
+
+    await procesarVencimientos(); // que los W.O. pendientes queden aplicados antes de cargar resultados
+    const result = await fechasManager.cargarResultados(fecha, tor, req.body?.resultados);
+    res.status(result.error ? 400 : 200).json(result);
+});
+
 router.delete('/:fechaId', requireAuth, requireRol('organizador'), conOrganizacion, async (req, res) => {
     const fecha = await fechasManager.getById(req.params.fechaId);
     if (!fecha) return res.status(404).json({ error: 'No se encontró la fecha' });

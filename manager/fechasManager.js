@@ -1,7 +1,7 @@
 import { formatId } from '../assets.js';
 import { q, tx, siguienteId } from '../db/index.js';
 import { aFila, deFila, deFilas } from '../db/filas.js';
-import { rondasDe } from '../services/fixtureService.js';
+import { rondasDe, recalcularTabla } from '../services/fixtureService.js';
 import { cobrar } from '../services/pagosService.js';
 import { reglasDe } from './torneosManager.js';
 import { equiposManager, partidosManager, torneosManager, amistososManager, multasManager } from './instances.js';
@@ -101,6 +101,11 @@ class FechasManager {
         return fila ? (await this.armar([fila]))[0] : null;
     }
 
+    async getByNumero(torId, numero) {
+        const fila = await q().selectFrom('fechas').selectAll().where('tor_id', '=', String(torId ?? '')).where('numero', '=', Number(numero)).executeTakeFirst();
+        return fila ? (await this.armar([fila]))[0] : null;
+    }
+
     async crear(tor, data = {}) {
         if (tor.estado !== 'en-curso') return { error: 'Solo se pueden crear fechas en torneos en curso. Primero pasá el torneo a "En curso".' };
 
@@ -183,6 +188,41 @@ class FechasManager {
         });
 
         return { ok: true };
+    }
+
+    // Resultados de una fecha terminada (organizador dueño). lista = [{ id, home_goals, away_goals }].
+    // Se pueden cargar de a varios y corregir mientras el torneo siga en curso: la tabla se recalcula
+    // entera desde los partidos, asi que editar un resultado no deja nada inconsistente.
+    // Cuando el torneo pasa a "finalizado" los resultados quedan fijos.
+    async cargarResultados(f, tor, lista) {
+        if (tor.estado !== 'en-curso') return { error: tor.estado === 'finalizado' ? 'El torneo ya terminó: los resultados no se pueden modificar' : 'El torneo todavía no empezó' };
+        if (this.estadoDe(f) !== 'jugada') return { error: 'La fecha todavía no terminó: los resultados se cargan cuando termina' };
+        if (!Array.isArray(lista) || !lista.length) return { error: 'No mandaste ningún resultado' };
+
+        const partidos = new Map((await partidosManager.getByFecha(f.tor_id, f.numero)).map(p => [p.id, p]));
+        const valido = (n) => Number.isInteger(n) && n >= 0 && n <= 99;
+        const cambios = new Map();
+
+        // Solo se toman id y goles de cada item: nunca el objeto entero
+        for (const r of lista) {
+            const p = partidos.get(String(r?.id ?? ''));
+            if (!p) return { error: 'Uno de los partidos no es de esta fecha' };
+            if (p.wo) return { error: 'Los partidos definidos por W.O. no admiten cargar resultado' };
+
+            const local = Number(r.home_goals), visita = Number(r.away_goals);
+            if (r.home_goals === null || r.home_goals === '' || r.away_goals === null || r.away_goals === ''
+                || !valido(local) || !valido(visita)) return { error: 'Los goles deben ser números enteros entre 0 y 99' };
+
+            cambios.set(p.id, { home_goals: local, away_goals: visita });
+        }
+
+        // Todos los resultados y la tabla juntos: o se guarda todo o nada
+        await tx(async () => {
+            for (const [id, goles] of cambios) await partidosManager.editMatch(id, goles);
+            await recalcularTabla(f.tor_id);
+        });
+
+        return partidosManager.getByFecha(f.tor_id, f.numero);
     }
 
     // El capitan paga la parte de su equipo. El monto lo define el servidor al crear la fecha
