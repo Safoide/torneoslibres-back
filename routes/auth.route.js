@@ -2,18 +2,52 @@ import { Router } from '../middleware/router.js';
 import { usuariosManager as manager, clubesManager, organizadoresManager } from '../manager/instances.js';
 import { requireAuth, signToken, firmaValida } from '../middleware/auth.js';
 import { quiereMail, tituloDe } from '../services/notificacionesService.js';
-import { limiteLoginIp, limiteLoginEmail, limiteRegistro, limiteGoogle, limiteRecuperarIp, limiteRecuperarEmail, limiteRestablecer } from '../middleware/limites.js';
+import { limiteLoginIp, limiteLoginEmail, limiteRegistro, limiteGoogle, limiteRecuperarIp, limiteRecuperarEmail, limiteRestablecer, limiteVerificacion } from '../middleware/limites.js';
 import { verificarGoogle } from '../services/googleService.js';
-import { enviarMail, plantilla } from '../services/mailService.js';
+import { enviarMail, plantilla, textoPlano } from '../services/mailService.js';
 import { SITIO_URL } from '../config.js';
 
 const router = Router();
+
+// Manda el link para verificar el email actual de la cuenta (en segundo plano: no frena la respuesta)
+const mandarVerificacion = async (userId) => {
+    const r = await manager.pedirVerificacion(userId);
+    if (!r.token) return r;
+
+    const link = `${SITIO_URL}/verificar#${r.token}`;
+    const parrafos = [
+        `Hola ${r.usuario.nombre}, confirmá que ${r.usuario.email} es tu email para terminar de configurar tu cuenta de Torneos Libres.`,
+        'Así nos aseguramos de que te lleguen los avisos de tus torneos y de que puedas recuperar tu cuenta si olvidás la contraseña.',
+    ];
+    const pie = 'El link vale por 48 horas. Si no creaste una cuenta en Torneos Libres, ignorá este mail.';
+    enviarMail({
+        para: r.usuario.email,
+        asunto: 'Confirmá tu email de Torneos Libres',
+        texto: textoPlano({ titulo: 'Confirmá tu email', parrafos, boton: 'Confirmar mi email', link, pie }),
+        html: plantilla({ titulo: 'Confirmá tu email', parrafos, boton: 'Confirmar mi email', link, pie }),
+    });
+    return { ok: true, email: r.usuario.email };
+};
 
 router.post('/register', limiteRegistro, async (req, res) => {
     const user = await manager.registrar(req.body);
     if (user.error) return res.status(400).json(user);
 
+    mandarVerificacion(user.id).catch((err) => console.error('Error mandando la verificación de email:', err));
     res.status(201).json({ user, token: await signToken(user) });
+});
+
+// Verificar el email: reenviar el link (con la sesión iniciada) y usarlo (desde el mail, con o sin sesión).
+// El token va en el # del link (/verificar#<token>), como el de recuperar contraseña
+router.post('/verificar/enviar', requireAuth, limiteVerificacion, async (req, res) => {
+    const r = await mandarVerificacion(req.userId);
+    res.status(r.error ? 400 : 200).json(r);
+});
+
+router.post('/verificar', limiteRestablecer, async (req, res) => {
+    const r = await manager.verificarEmail(req.body?.token);
+    if (r.error) return res.status(400).json({ error: r.error });
+    res.json({ ok: true, email: r.email });
 });
 
 router.post('/login', limiteLoginIp, limiteLoginEmail, async (req, res) => {
@@ -58,7 +92,7 @@ router.post('/olvide', limiteRecuperarIp, limiteRecuperarEmail, async (req, res)
         enviarMail({
             para: r.usuario.email,
             asunto: 'Cambiá tu contraseña de Torneos Libres',
-            texto: `${parrafos.join('\n\n')}\n\nCambiala acá: ${link}\n\n${pie}`,
+            texto: textoPlano({ titulo: 'Cambiá tu contraseña', parrafos, boton: 'Elegir contraseña nueva', link, pie }),
             html: plantilla({ titulo: 'Cambiá tu contraseña', parrafos, boton: 'Elegir contraseña nueva', link, pie }),
         });
     }
@@ -98,10 +132,13 @@ router.put('/me', requireAuth, async (req, res) => {
         return res.status(400).json({ error: 'Ingresá tu WhatsApp con código de país (10 a 15 dígitos)' });
     }
 
+    const antes = await manager.getRaw(req.userId);
     const user = await manager.actualizar(req.userId, req.body);
     if (user.error) return res.status(400).json(user);
 
     if (club) await clubesManager.cambiarWhatsapp(club.id, digitos);
+    // Email nuevo: queda sin verificar y le mandamos el link
+    if (antes && user.email !== antes.email) mandarVerificacion(user.id).catch((err) => console.error('Error mandando la verificación de email:', err));
 
     res.json(user);
 });

@@ -73,3 +73,10 @@ export const limiteRestablecer = limite({
     keyGenerator: (req) => ipKeyGenerator(req.ip),
     mensaje: 'Demasiados intentos. Probá de nuevo en 15 minutos.',
 });
+
+// Reenviar el mail de verificación: por cuenta (va después de requireAuth)
+export const limiteVerificacion = limite({
+    ventana: 60 * MIN, max: 5,
+    keyGenerator: (req) => `verificar:${req.userId}`,
+    mensaje: 'Ya te mandamos varios mails. Revisá tu casilla (y el spam) o probá de nuevo en una hora.',
+});

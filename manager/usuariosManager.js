@@ -20,6 +20,9 @@ const VENTANA_MS = 15 * 60 * 1000;
 const VIGENCIA_LINK_MS = 60 * 60 * 1000;
 const LINK_INVALIDO = 'El link no es válido o ya venció. Pedí uno nuevo.';
 const hashToken = (token) => createHash('sha256').update(String(token)).digest('hex');
+// Verificar el email: el link vale 48 horas y una sola vez
+const VIGENCIA_VERIFICACION_MS = 48 * 60 * 60 * 1000;
+const LINK_VERIFICACION_INVALIDO = 'El link no es válido o ya venció. Pedí uno nuevo desde tu cuenta.';
 const TOKEN_RE = /^[A-Za-z0-9_-]{20,100}$/;
 
 // Novedades y promociones: solo si lo eligió (true explícito), guardando cuándo
@@ -101,7 +104,10 @@ class UsuariosManager {
             // Un email nuevo todavia no esta verificado
             await q().updateTable('usuarios').set({ nombre, email, ...(email !== usuario.email ? { emailVerificado: 0 } : {}) }).where('id', '=', id).execute();
             // Los links de recuperacion mandados al email anterior dejan de valer
-            if (email !== usuario.email) await q().deleteFrom('password_tokens').where('usuarioId', '=', id).execute();
+            if (email !== usuario.email) {
+                await q().deleteFrom('password_tokens').where('usuarioId', '=', id).execute();
+                await q().deleteFrom('verificacion_tokens').where('usuarioId', '=', id).execute();
+            }
         } catch (err) {
             if (esDuplicado(err)) return EMAIL_REPETIDO;
             throw err;
@@ -161,6 +167,7 @@ class UsuariosManager {
     async eliminar(id) {
         await tx(async () => {
             await q().deleteFrom('password_tokens').where('usuarioId', '=', id).execute();
+            await q().deleteFrom('verificacion_tokens').where('usuarioId', '=', id).execute();
             await q().deleteFrom('usuarios').where('id', '=', id).execute();
         });
         this.intentos.delete(id);
@@ -190,6 +197,51 @@ class UsuariosManager {
 
         await q().updateTable('usuarios').set(cambios).where('id', '=', id).execute();
         return this.preferencias(id);
+    }
+
+    // ---------- Verificar el email ----------
+
+    // Crea un link de un solo uso para el email actual de la cuenta (invalida los anteriores).
+    // Devuelve { usuario, token } para que quien llama mande el mail, o { yaVerificado } | { error }
+    async pedirVerificacion(id) {
+        const usuario = await this.getRaw(id);
+        if (!usuario) return { error: 'No se encontró la cuenta' };
+        if (usuario.emailVerificado) return { yaVerificado: true };
+
+        const token = randomBytes(32).toString('base64url');
+        const ahora = new Date();
+        await tx(async () => {
+            await q().deleteFrom('verificacion_tokens')
+                .where((eb) => eb.or([eb('usuarioId', '=', usuario.id), eb('vence', '<', ahora.toISOString())]))
+                .execute();
+            await q().insertInto('verificacion_tokens').values({
+                tokenHash: hashToken(token), usuarioId: usuario.id, email: usuario.email,
+                vence: new Date(ahora.getTime() + VIGENCIA_VERIFICACION_MS).toISOString(), creado: ahora.toISOString(),
+            }).execute();
+        });
+
+        return { usuario: this.publico(usuario), token };
+    }
+
+    // Usa el link: marca el email como verificado si sigue siendo el de la cuenta. Devuelve { ok, email, userId } | { error }
+    async verificarEmail(token) {
+        if (!TOKEN_RE.test(String(token ?? ''))) return { error: LINK_VERIFICACION_INVALIDO };
+
+        return tx(async () => {
+            const fila = await q().selectFrom('verificacion_tokens').selectAll()
+                .where('tokenHash', '=', hashToken(token)).where('vence', '>', new Date().toISOString())
+                .executeTakeFirst();
+            if (!fila) return { error: LINK_VERIFICACION_INVALIDO };
+
+            await q().deleteFrom('verificacion_tokens').where('tokenHash', '=', fila.tokenHash).execute();
+            // Condicional: solo si la cuenta todavía tiene ese email (si lo cambió, el link era para el anterior)
+            const r = await q().updateTable('usuarios').set({ emailVerificado: 1 })
+                .where('id', '=', fila.usuarioId).where('email', '=', fila.email).executeTakeFirst();
+            if (!Number(r.numUpdatedRows)) return { error: 'Cambiaste el email de tu cuenta: pedí un link nuevo para el email actual.' };
+
+            await q().deleteFrom('verificacion_tokens').where('usuarioId', '=', fila.usuarioId).execute();
+            return { ok: true, email: fila.email, userId: fila.usuarioId };
+        });
     }
 
     // ---------- Recuperar contraseña ----------
