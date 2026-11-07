@@ -21,16 +21,9 @@ import { procesarVencimientos } from "./services/vencimientosService.js";
 import { procesarEstados } from "./services/estadosService.js";
 import { procesarAvisosProgramados } from "./services/avisosService.js";
 import { migrar, copiarBase, DB_FILE } from "./db/index.js";
-import { importarJsonViejos } from "./db/importarJson.js";
 
 // Crea o actualiza la estructura de la base antes de atender pedidos (en produccion arranca vacia)
 await migrar();
-// Si la base está vacía y quedaron los JSON de antes en DATA_DIR, los pasa a la base (una sola vez)
-try {
-    await importarJsonViejos();
-} catch (err) {
-    console.error("No se pudieron importar los JSON viejos (la base sigue vacía y los JSON quedan como estaban):", err);
-}
 console.log("Base de datos: " + DB_FILE);
 
 const app = express();
@@ -51,8 +44,8 @@ const origenes = process.env.CORS_ORIGIN?.split(',').map((o) => o.trim()).filter
 app.use(cors(origenes?.length ? { origin: origenes } : undefined));
 
 app.get('/', (req, res) => {
-    res.sendFile('/src/index.html', {root: '.'});
-})
+    res.json({ api: 'Torneos Libres' });
+});
 
 app.use('/uploads', express.static(UPLOADS_DIR, { setHeaders: (res) => res.setHeader('X-Content-Type-Options', 'nosniff') }));
 app.use('/uploads', uploadsRouter);
