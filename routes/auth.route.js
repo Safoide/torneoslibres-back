@@ -64,7 +64,8 @@ router.post('/google', limiteGoogle, async (req, res) => {
     const perfil = await verificarGoogle(req.body?.credential);
     if (perfil.error) return res.status(perfil.status ?? 400).json({ error: perfil.error });
 
-    const r = await manager.entrarConGoogle(perfil, req.body?.rol, { novedades: req.body?.novedades });
+    // novedades y terminos solo se usan si crea la cuenta
+    const r = await manager.entrarConGoogle(perfil, req.body?.rol, { novedades: req.body?.novedades, terminos: req.body?.terminos });
     if (r.error) return res.status(400).json(r);
     if (r.necesitaRol) return res.json(r);
 
@@ -119,6 +120,14 @@ router.get('/me', requireAuth, async (req, res) => {
     const user = await manager.getById(req.userId);
     if (!user) return res.status(401).json({ error: 'Sesión inválida' });
 
+    res.json(user);
+});
+
+// Aceptar los términos y la privacidad vigentes (cuentas creadas antes, o cuando cambia la versión).
+// body: { version } (la que mostró el front). Responde la cuenta actualizada
+router.post('/terminos', requireAuth, async (req, res) => {
+    const user = await manager.aceptarTerminos(req.userId, req.body?.version);
+    if (user.error) return res.status(400).json(user);
     res.json(user);
 });
 

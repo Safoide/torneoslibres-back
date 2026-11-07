@@ -42,6 +42,23 @@ export const requireAuth = async (req, res, next) => {
     next();
 };
 
+// Para rutas que no exigen sesión pero aprovechan saber quién es (formulario de contacto).
+// Nunca responde 401 (el front cerraría la sesión): si el token no sirve, sigue como anónimo
+export const usuarioOpcional = async (req, res, next) => {
+    const [type, token] = (req.headers.authorization || '').split(' ');
+    if (type === 'Bearer' && token) {
+        try {
+            const payload = jwt.verify(token, SECRET);
+            const cuenta = await usuariosManager.getRaw(payload.sub);
+            if (cuenta && (payload.v ?? 0) === (cuenta.tokenVersion ?? 0)) {
+                req.userId = payload.sub;
+                req.rol = payload.rol ?? 'organizador';
+            }
+        } catch { /* token vencido o inválido: anónimo */ }
+    }
+    next();
+};
+
 export const requireRol = (rol) => (req, res, next) => {
     if (req.rol !== rol) return res.status(403).json({ error: `Esta acción es solo para cuentas de ${rol}` });
     next();

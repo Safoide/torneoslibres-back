@@ -3,6 +3,7 @@ import { randomUUID, randomBytes, createHash } from 'crypto';
 import { q, tx, esDuplicado } from '../db/index.js';
 import { verificarGoogle } from '../services/googleService.js';
 import { preferenciasDe, limpiarPreferencias } from '../services/notificacionesService.js';
+import { TERMINOS_VERSION } from '../config.js';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // Se usa para que el login tarde igual exista o no el email
@@ -30,6 +31,13 @@ const consentimiento = (novedades) => (novedades === true
     ? { novedades: 1, novedadesFecha: new Date().toISOString() }
     : { novedades: 0, novedadesFecha: null });
 
+// Términos y condiciones + privacidad: el front manda la versión que mostró y tiene que ser la vigente
+// (si no, la página quedó vieja: no se registra la aceptación de un texto que no vio). Se guarda cuál y cuándo
+const aceptacion = (version) => (version === TERMINOS_VERSION
+    ? { terminosVersion: TERMINOS_VERSION, terminosFecha: new Date().toISOString() }
+    : null);
+const SIN_TERMINOS = { error: 'Para crear la cuenta tenés que aceptar los términos y condiciones y la política de privacidad. Si ya los aceptaste, recargá la página.' };
+
 class UsuariosManager {
     constructor() {
         this.intentos = new Map(); // userId -> { n, desde }
@@ -37,14 +45,24 @@ class UsuariosManager {
 
     // Nunca devolvemos el hash, la version de sesion ni el id de Google: solo si tiene contraseña y si entra con Google.
     // Las preferencias de notificaciones van aparte (GET /auth/notificaciones)
-    publico({ passwordHash, tokenVersion, googleId, emailVerificado, notificaciones, novedades, novedadesFecha, ...rest }) {
+    // terminosPendientes: no aceptó la versión vigente de los términos (cuenta anterior o términos nuevos): el front lo pide
+    publico({ passwordHash, tokenVersion, googleId, emailVerificado, notificaciones, novedades, novedadesFecha, terminosVersion, terminosFecha, ...rest }) {
         return {
             ...rest,
             rol: rest.rol ?? 'organizador', // las cuentas anteriores a los roles eran todas de organizador
             tienePassword: !!passwordHash,
             conGoogle: !!googleId,
             emailVerificado: !!emailVerificado,
+            terminosPendientes: terminosVersion !== TERMINOS_VERSION,
         };
+    }
+
+    // Aceptar los términos vigentes (cuentas que todavía no los aceptaron). version: la que mostró el front
+    async aceptarTerminos(id, version) {
+        const datos = aceptacion(version);
+        if (!datos) return { error: 'Los términos se actualizaron mientras tenías la página abierta. Recargá la página para ver la versión nueva.' };
+        await q().updateTable('usuarios').set(datos).where('id', '=', id).execute();
+        return this.getById(id);
     }
 
     async getByGoogleId(googleId) {
@@ -318,7 +336,8 @@ class UsuariosManager {
         return r;
     }
 
-    async registrar({ nombre, email, password, rol, novedades } = {}) {
+    // terminos: la versión de los términos que aceptó (el aviso del formulario de registro)
+    async registrar({ nombre, email, password, rol, novedades, terminos } = {}) {
         nombre = String(nombre ?? '').trim();
         email = String(email ?? '').trim().toLowerCase();
         password = String(password ?? '');
@@ -327,6 +346,8 @@ class UsuariosManager {
         if (!nombre || nombre.length > 60) return { error: 'Ingresá tu nombre (hasta 60 caracteres)' };
         if (!EMAIL_RE.test(email)) return { error: 'El email no es válido' };
         if (password.length < 8 || password.length > 72) return { error: 'La contraseña debe tener entre 8 y 72 caracteres' };
+        const terminosAceptados = aceptacion(terminos);
+        if (!terminosAceptados) return SIN_TERMINOS;
 
         const usuario = {
             id: `USR-${randomUUID().slice(0, 8)}`,
@@ -334,6 +355,7 @@ class UsuariosManager {
             creado: new Date().toISOString(),
             tokenVersion: 0,
             ...consentimiento(novedades),
+            ...terminosAceptados,
         };
 
         try {
@@ -403,12 +425,15 @@ class UsuariosManager {
         }
 
         if (!ROLES.includes(rol)) return { necesitaRol: true, email, nombre };
+        const terminosAceptados = aceptacion(opciones.terminos);
+        if (!terminosAceptados) return SIN_TERMINOS;
 
         const usuario = {
             id: `USR-${randomUUID().slice(0, 8)}`,
             nombre: nombre || email.split('@')[0], email, passwordHash: null, rol,
             creado: new Date().toISOString(), tokenVersion: 0, googleId, emailVerificado: 1,
             ...consentimiento(opciones.novedades),
+            ...terminosAceptados,
         };
         try {
             await q().insertInto('usuarios').values(usuario).execute();

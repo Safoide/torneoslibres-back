@@ -18,6 +18,7 @@ const espera = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // Devuelve true si se envió (o se mostró en la consola en desarrollo). Nunca tira error: lo registra.
 // headers: encabezados extra (por ejemplo List-Unsubscribe en los avisos)
+// responderA: a quién va la respuesta (formulario de contacto: así se le contesta directo a quien escribió)
 export const enviarMail = (mail) => {
     const envio = cola.then(() => enviarAhora(mail));
     cola = envio.then(() => (API_KEY ? espera(PAUSA_MS) : null));
@@ -27,7 +28,7 @@ export const enviarMail = (mail) => {
 // Dominios de prueba (cuentas de casos-prueba / seed): no existen, mandarles rebota y le baja la reputación al dominio
 const DE_PRUEBA = /@[^@]+\.(test|example|invalid|localhost)$/i;
 
-const enviarAhora = async ({ para, asunto, texto, html, headers }) => {
+const enviarAhora = async ({ para, asunto, texto, html, headers, responderA }) => {
     if (!API_KEY || (!PRODUCCION && DE_PRUEBA.test(para))) {
         if (PRODUCCION) return false;
         console.log(`\n--- Mail (no se envía: sin RESEND_API_KEY o email de prueba) ---\nPara: ${para}\nAsunto: ${asunto}\n\n${texto}\n----------------------------------------------\n`);
@@ -38,7 +39,7 @@ const enviarAhora = async ({ para, asunto, texto, html, headers }) => {
         const res = await fetch('https://api.resend.com/emails', {
             method: 'POST',
             headers: { Authorization: `Bearer ${API_KEY}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ from: FROM, to: [para], subject: asunto, text: texto, html, ...(headers ? { headers } : {}) }),
+            body: JSON.stringify({ from: FROM, to: [para], subject: asunto, text: texto, html, ...(headers ? { headers } : {}), ...(responderA ? { reply_to: responderA } : {}) }),
             signal: AbortSignal.timeout(10000),
         });
         if (!res.ok) {

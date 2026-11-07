@@ -33,6 +33,7 @@ const { torneosManager, equiposManager, partidosManager, fechasManager, usuarios
     clubesManager, amistososManager, multasManager } = await import('./manager/instances.js');
 const { procesarVencimientos } = await import('./services/vencimientosService.js');
 const { vencimientoPago } = await import('./manager/fechasManager.js');
+const { TERMINOS_VERSION } = await import('./config.js'); // las cuentas de prueba entran con los términos aceptados
 
 // ---------- 2) Borrar los casos de una corrida anterior ----------
 const emails = Object.values(CUENTAS).map(c => c.email);
@@ -70,7 +71,7 @@ if (usuariosViejos.length) {
 // ---------- 4) Cuentas, organizacion y equipos de los capitanes ----------
 const usuarios = {};
 for (const [clave, c] of Object.entries(CUENTAS)) {
-    const u = await usuariosManager.registrar({ nombre: c.nombre, email: c.email, password: PASSWORD, rol: c.rol });
+    const u = await usuariosManager.registrar({ nombre: c.nombre, email: c.email, password: PASSWORD, rol: c.rol, terminos: TERMINOS_VERSION });
     if (u.error) throw new Error(`${c.email}: ${u.error}`);
     usuarios[clave] = u;
 }
