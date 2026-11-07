@@ -9,6 +9,7 @@ import { enviarMail, plantilla, textoPlano } from './mailService.js';
 import { quiereMail, tituloDe } from './notificacionesService.js';
 import { fechasManager, partidosManager, torneosManager, amistososManager, multasManager } from '../manager/instances.js';
 import { REGLAS_DEFAULT, montoMulta, sumarDias } from '../manager/torneosManager.js';
+import { saldoDe } from './saldosService.js';
 
 const AR = '-03:00';
 const HORA_RECORDATORIO = '10:00'; // el recordatorio de pago sale el día que vence, desde esta hora
@@ -93,6 +94,8 @@ const fechaNueva = async (tor, fecha) => {
     const capitanes = await capitanesDe(equipos.map((e) => e.id));
     const conCobro = !!fecha.vencePago;
     const dia = diaTexto(fecha.dia);
+    const pagos = conCobro ? (await fechasManager.getById(fecha.id))?.pagos ?? {} : {}; // con saldo a favor puede estar paga
+    const vence = conCobro ? `hasta el ${diaTexto(fecha.vencePago.slice(0, 10))} a las 23:59` : '';
 
     for (const eq of equipos) {
         const capitan = capitanes.get(eq.id);
@@ -110,22 +113,29 @@ const fechaNueva = async (tor, fecha) => {
         }
 
         const rival = nombres.get(p.home_id === eq.id ? p.away_id : p.home_id) ?? 'a confirmar';
+        // Saldo a favor (de una fecha cancelada): si alcanzó, la parte ya quedó paga; si no, se descuenta al pagar
+        const paga = pagos[eq.id]?.estado === 'pagado';
+        const saldo = conCobro && !paga ? Math.min(await saldoDe(eq.id), fecha.precio) : 0;
+        const tuParte = paga ? `${precioTexto(fecha.precio)} · ya está paga con tu saldo a favor`
+            : saldo ? `${precioTexto(fecha.precio - saldo)} (descontamos ${precioTexto(saldo)} de tu saldo a favor) · ${vence}`
+            : `${precioTexto(fecha.precio)} · ${vence}`;
         const detalles = [
             ['Día', dia],
             ['Hora', horaDe(p.date)],
             ...(p.cancha ? [['Cancha', `Cancha ${p.cancha}`]] : []),
             ['Rival', rival],
             ['Sede', sedeTexto(tor)],
-            ...(conCobro ? [['Tu parte', `${precioTexto(fecha.precio)} · hasta el ${diaTexto(fecha.vencePago.slice(0, 10))} a las 23:59`]] : []),
+            ...(conCobro ? [['Tu parte', tuParte]] : []),
         ];
+        const falta = conCobro && !paga;
 
         await avisar(capitan, 'fechaNueva', {
             asunto: `Fecha ${fecha.numero} de ${tor.nombre}: ${dia} contra ${rival}`,
             titulo: `Fecha ${fecha.numero}: jugás contra ${rival}`,
             parrafos: [`Ya está armada la fecha ${fecha.numero} de ${tor.nombre}.`],
             detalles,
-            pie: conCobro ? consecuencia(fecha.reglas, fecha.precio) : undefined,
-            boton: conCobro ? 'Pagar mi parte' : 'Ver mi próxima fecha', link: `${SITIO_URL}/`,
+            pie: falta ? consecuencia(fecha.reglas, fecha.precio) : undefined,
+            boton: falta ? 'Pagar mi parte' : 'Ver mi próxima fecha', link: `${SITIO_URL}/`,
         });
     }
 };
@@ -184,6 +194,7 @@ const recordarPago = async (fechaId, equipoId) => {
     const rivalId = p ? (p.home_id === equipoId ? p.away_id : p.home_id) : null;
     const rival = rivalId ? (await q().selectFrom('equipos').select('name').where('id', '=', rivalId).executeTakeFirst())?.name : null;
     const monto = f.pagos?.[equipoId]?.monto ?? f.precio;
+    const saldo = Math.min(await saldoDe(equipoId), monto); // a favor, se descuenta al pagar
 
     return avisar(capitan, 'recordatorioPago', {
         asunto: `Hoy vence el pago de la fecha ${f.numero} de ${tor.nombre}`,
@@ -191,7 +202,7 @@ const recordarPago = async (fechaId, equipoId) => {
         parrafos: [`Todavía no pagaste tu parte de la fecha ${f.numero} de ${tor.nombre}. Tenés tiempo hasta hoy a las 23:59.`],
         detalles: [
             ...(p ? [['Partido', `contra ${rival ?? 'a confirmar'}`], ['Cuándo', `${diaTexto(f.dia)} a las ${horaDe(p.date)}`]] : []),
-            ['Tu parte', precioTexto(monto)],
+            ['Tu parte', saldo ? `${precioTexto(monto - saldo)} (descontamos ${precioTexto(saldo)} de tu saldo a favor)` : precioTexto(monto)],
         ],
         pie: consecuencia(f.reglas, f.precio),
         boton: 'Pagar ahora', link: `${SITIO_URL}/`,
@@ -481,4 +492,96 @@ const estados = async ({ cerradas = [], empezados = [], sinEquipos = [] }) => {
             boton: 'Ver el torneo', link: `${SITIO_URL}/torneos/${tor.id}`,
         });
     }
+};
+
+// ---------- Fecha cancelada (capitanes) ----------
+// partidos: los de la fecha antes de borrarla. acreditados: [{ equipoId, monto }] lo que pasó a saldo a favor
+export const avisarFechaCancelada = (tor, fecha, partidos, acreditados = []) =>
+    enSegundoPlano(fechaCancelada(tor, fecha, partidos, acreditados), 'fecha cancelada');
+
+const fechaCancelada = async (tor, fecha, partidos, acreditados) => {
+    const ids = partidos.flatMap((p) => [p.home_id, p.away_id]);
+    const [capitanes, nombres] = await Promise.all([capitanesDe(ids), nombresDe(ids)]);
+    const credito = new Map(acreditados.map((a) => [a.equipoId, a.monto]));
+
+    for (const p of partidos) {
+        for (const eqId of [p.home_id, p.away_id]) {
+            const capitan = capitanes.get(eqId);
+            if (!capitan) continue;
+
+            const rival = nombres.get(eqId === p.home_id ? p.away_id : p.home_id) ?? 'tu rival';
+            const monto = credito.get(eqId) ?? 0;
+            const saldo = monto ? await saldoDe(eqId) : 0;
+
+            await avisar(capitan, 'fechaCancelada', {
+                asunto: `Se canceló la fecha ${fecha.numero} de ${tor.nombre}`,
+                titulo: `Se canceló la fecha ${fecha.numero}`,
+                parrafos: [
+                    `El organizador canceló la fecha ${fecha.numero} de ${tor.nombre}: el partido contra ${rival} del ${diaTexto(fecha.dia)} no se juega.`,
+                    ...(monto ? [`Lo que habías pagado (${precioTexto(monto)}) te queda como saldo a favor en el torneo. Se usa solo para pagar tu próxima fecha: si alcanza, queda paga sin que hagas nada.`] : []),
+                ],
+                detalles: [
+                    ['Partido', `contra ${rival}`],
+                    ['Era el', `${diaTexto(fecha.dia)} a las ${horaDe(p.date)}`],
+                    ...(monto ? [['Saldo a favor', precioTexto(saldo)]] : []),
+                ],
+                boton: 'Ver el torneo', link: `${SITIO_URL}/torneos/${tor.id}`,
+            });
+        }
+    }
+};
+
+// ---------- Devoluciones (saldo a favor que quedó al terminar el torneo) ----------
+// Al finalizar: al organizador la lista de lo que tiene que devolver y a cada capitán lo suyo.
+// devoluciones: las que creó generarDevoluciones ({ equipoId, monto })
+export const avisarDevoluciones = (tor, devoluciones) => enSegundoPlano(devolucionesAlFinalizar(tor, devoluciones), 'devoluciones');
+
+const devolucionesAlFinalizar = async (tor, devoluciones) => {
+    const ids = devoluciones.map((d) => d.equipoId);
+    const [capitanes, nombres] = await Promise.all([capitanesDe(ids), nombresDe(ids)]);
+    const total = devoluciones.reduce((s, d) => s + d.monto, 0);
+
+    const org = await organizadorDe(tor);
+    if (org) {
+        await avisar(org, 'devoluciones', {
+            asunto: `Tenés devoluciones pendientes de ${tor.nombre}`,
+            titulo: devoluciones.length === 1 ? 'Le tenés que devolver plata a 1 equipo' : `Le tenés que devolver plata a ${devoluciones.length} equipos`,
+            parrafos: [
+                `${tor.nombre} terminó y ${devoluciones.length === 1 ? 'a un equipo le quedó' : 'a algunos equipos les quedó'} saldo a favor de fechas canceladas que ya habían pagado. Hay que devolverles el monto completo (${precioTexto(total)} en total).`,
+                'Cuando le pases la plata a cada equipo, marcala como devuelta desde el fixture del torneo o desde tu panel. Nuestra comisión de ese monto te la devolvemos nosotros.',
+            ],
+            detalles: devoluciones.map((d) => [nombres.get(d.equipoId) ?? d.equipoId, precioTexto(d.monto)]),
+            boton: 'Ver las devoluciones', link: `${SITIO_URL}/partidos/${tor.id}`,
+        });
+    }
+
+    for (const d of devoluciones) {
+        const capitan = capitanes.get(d.equipoId);
+        if (!capitan) continue;
+        await avisar(capitan, 'devoluciones', {
+            asunto: `${tor.nombre} terminó: te tienen que devolver ${precioTexto(d.monto)}`,
+            titulo: `Te tienen que devolver ${precioTexto(d.monto)}`,
+            parrafos: [
+                `${tor.nombre} terminó y te quedó saldo a favor de una fecha cancelada que ya habías pagado. El organizador (${tor.organizador}) te tiene que devolver el monto completo.`,
+                'Te avisamos cuando lo marque como devuelto. Si tenés dudas, escribile por WhatsApp desde el torneo.',
+            ],
+            detalles: [['Torneo', tor.nombre], ['A devolver', precioTexto(d.monto)]],
+            boton: 'Ver el torneo', link: `${SITIO_URL}/torneos/${tor.id}`,
+        });
+    }
+};
+
+// El organizador la marcó como devuelta: aviso al capitán. dev: la de getDevolucion (con equipo y torneo)
+export const avisarDevolucionHecha = (dev) => enSegundoPlano(devolucionHecha(dev), 'devolución hecha');
+
+const devolucionHecha = async (dev) => {
+    const capitan = (await capitanesDe([dev.equipoId])).get(dev.equipoId);
+    if (!capitan) return;
+    await avisar(capitan, 'devoluciones', {
+        asunto: `El organizador de ${dev.torneo} marcó tu devolución como hecha`,
+        titulo: `Te devolvieron ${precioTexto(dev.monto)}`,
+        parrafos: [`El organizador de ${dev.torneo} marcó que ya te devolvió el saldo a favor de ${dev.equipo}. Si no te llegó, escribile por WhatsApp desde el torneo.`],
+        detalles: [['Torneo', dev.torneo], ['Monto', precioTexto(dev.monto)]],
+        boton: 'Ver el torneo', link: `${SITIO_URL}/torneos/${dev.tor_id}`,
+    });
 };

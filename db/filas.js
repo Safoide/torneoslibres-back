@@ -25,6 +25,8 @@ const T = {
         cols: ['id', 'clubId', 'equipoId', 'equipo', 'tor_id', 'torneo', 'organizadorId', 'fecha_id', 'fecha', 'monto', 'estado', 'creada', 'pago'],
         json: ['pago'],
     },
+    saldos: { cols: ['id', 'equipoId', 'tor_id', 'monto', 'motivo', 'fechaNumero', 'creado'] },
+    devoluciones: { cols: ['id', 'equipoId', 'tor_id', 'monto', 'estado', 'creada', 'devuelta'] },
     amistosos: {
         cols: ['id', 'tor_id', 'fecha_id', 'partido_id', 'date', 'cancha', 'torneo', 'organizador', 'organizadorId', 'modalidad', 'categoria',
             'sede', 'direccion', 'zona', 'localidad', 'anfitrion', 'ausenteClubId', 'precioOriginal', 'precio', 'estado', 'rival', 'pago', 'creado'],

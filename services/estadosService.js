@@ -1,7 +1,8 @@
 import { torneosManager, inscripcionesManager, fechasManager } from '../manager/instances.js';
 import { finCierre, cierreDe, hoyAR } from '../manager/torneosManager.js';
-import { q } from '../db/index.js';
-import { avisarEstados } from './avisosService.js';
+import { q, tx } from '../db/index.js';
+import { avisarEstados, avisarDevoluciones } from './avisosService.js';
+import { generarDevoluciones } from './saldosService.js';
 
 // Estados del torneo:
 //   proximamente ⇄ inscripcion-abierta → inscripcion-cerrada → en-curso → finalizado
@@ -115,7 +116,12 @@ export const cambiarEstado = async (tor, nuevo, ahora = Date.now()) => {
             if (actual !== 'en-curso') return { error: 'Solo se puede finalizar un torneo en curso' };
             const pendiente = (await fechasManager.getRawByTorneo(tor.id)).find(f => f.estado !== 'jugada');
             if (pendiente) return { error: `La fecha ${pendiente.numero} todavía no se jugó: esperá a que termine o cancelala antes de finalizar` };
-            return pasarO('en-curso');
+
+            // Junto con el cambio de estado: los saldos a favor que quedaron pasan a devoluciones pendientes
+            const devoluciones = await tx(async () => (await pasar(tor.id, 'en-curso', 'finalizado')) ? generarDevoluciones(tor.id) : null);
+            if (!devoluciones) return { error: 'El estado del torneo cambió recién. Recargá la página.' };
+            if (devoluciones.length) avisarDevoluciones(tor, devoluciones);
+            return torneosManager.getTorneoById(tor.id);
         }
 
         default:

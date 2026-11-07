@@ -49,6 +49,8 @@ if (usuariosViejos.length) {
         .filter(a => tors.includes(a.tor_id) || clubs.includes(JSON.parse(a.rival ?? 'null')?.clubId));
 
     await tx(async () => {
+        await q().deleteFrom('devoluciones').where('tor_id', 'in', algo(tors)).execute();
+        await q().deleteFrom('saldos').where('tor_id', 'in', algo(tors)).execute();
         await q().deleteFrom('fecha_pagos').where('fechaId', 'in', algo(fechas)).execute();
         await q().deleteFrom('fechas').where('id', 'in', algo(fechas)).execute();
         await q().deleteFrom('partidos').where('tor_id', 'in', algo(tors)).execute();

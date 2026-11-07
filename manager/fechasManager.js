@@ -3,6 +3,7 @@ import { q, tx, siguienteId } from '../db/index.js';
 import { aFila, deFila, deFilas } from '../db/filas.js';
 import { rondasDe, recalcularTabla } from '../services/fixtureService.js';
 import { cobrar } from '../services/pagosService.js';
+import { saldoDe, saldosDeTorneo, moverSaldo } from '../services/saldosService.js';
 import { reglasDe, cobraPorFecha, hoyAR, sumarDias, ANTICIPACION_DIAS } from './torneosManager.js';
 import { equiposManager, partidosManager, torneosManager, amistososManager, multasManager } from './instances.js';
 
@@ -183,6 +184,17 @@ class FechasManager {
                 await q().insertInto('fecha_pagos')
                     .values(partidos.flat().map((eq, orden) => ({ fechaId: fecha.id, equipoId: eq.id, orden, estado: 'pendiente', monto: tor.precioFecha })))
                     .execute();
+
+                // Saldo a favor (de una fecha cancelada): si alcanza para toda la parte, la fecha queda paga sola.
+                // Si alcanza para una parte, se descuenta cuando pague (ver pagar)
+                const saldos = await saldosDeTorneo(tor.id);
+                for (const eq of partidos.flat()) {
+                    if ((saldos.get(eq.id) ?? 0) < tor.precioFecha) continue;
+                    const pago = { id: null, metodo: 'saldo', monto: tor.precioFecha, cobrado: 0, saldo: tor.precioFecha, fecha: new Date().toISOString() };
+                    await q().updateTable('fecha_pagos').set({ estado: 'pagado', pago: JSON.stringify(pago) })
+                        .where('fechaId', '=', fecha.id).where('equipoId', '=', eq.id).execute();
+                    await moverSaldo({ equipoId: eq.id, torId: tor.id, monto: -tor.precioFecha, motivo: 'pago-fecha', fechaNumero: numero });
+                }
             }
 
             return this.publico(await this.getById(fecha.id));
@@ -198,13 +210,43 @@ class FechasManager {
         if (posterior) return { error: 'Solo se puede cancelar la última fecha creada' };
         if (this.estadoDe(f) !== 'programada') return { error: 'La fecha ya empezó: no se puede cancelar' };
 
+        // Un amistoso express ya tomado lo pagó otro equipo (puede ser de otro torneo): el saldo no le sirve
+        const tomado = await q().selectFrom('amistosos').select('id').where('fecha_id', '=', id).where('estado', '=', 'tomado').executeTakeFirst();
+        if (tomado) return { error: 'Un equipo ya tomó el amistoso express de esta fecha: no se puede cancelar' };
+
+        // Lo que pagó cada equipo queda como saldo a favor en el torneo, para sus próximas fechas.
+        // Si el pago ya había vencido (cancelación el mismo día), además se deshace lo del vencimiento:
+        // las multas pendientes se anulan, las pagadas pasan a saldo, se borran los amistosos y la tabla se recalcula sin los W.O.
+        const acreditados = new Map(); // equipoId -> monto
+        const sumar = (equipoId, monto) => acreditados.set(equipoId, (acreditados.get(equipoId) ?? 0) + monto);
+
         await tx(async () => {
+            const pagados = await q().selectFrom('fecha_pagos').select(['equipoId', 'monto'])
+                .where('fechaId', '=', id).where('estado', '=', 'pagado').execute();
+            for (const p of pagados) {
+                await moverSaldo({ equipoId: p.equipoId, torId: f.tor_id, monto: p.monto, motivo: 'fecha-cancelada', fechaNumero: f.numero });
+                sumar(p.equipoId, p.monto);
+            }
+
+            // Las multas se borran (los ids de las fechas se reutilizan: una multa vieja chocaría con la de la fecha nueva).
+            // La pagada pasa a saldo: el movimiento deja registrado de dónde salió
+            const multas = await q().selectFrom('multas').select(['id', 'equipoId', 'monto', 'estado']).where('fecha_id', '=', id).execute();
+            for (const m of multas) {
+                if (m.estado === 'pagada') {
+                    await moverSaldo({ equipoId: m.equipoId, torId: f.tor_id, monto: m.monto, motivo: 'multa-devuelta', fechaNumero: f.numero });
+                    sumar(m.equipoId, m.monto);
+                }
+            }
+            await q().deleteFrom('multas').where('fecha_id', '=', id).execute();
+
+            await q().deleteFrom('amistosos').where('fecha_id', '=', id).where('estado', '=', 'publicado').execute();
             await partidosManager.deleteByFecha(f.tor_id, f.numero);
             await q().deleteFrom('fecha_pagos').where('fechaId', '=', id).execute();
             await q().deleteFrom('fechas').where('id', '=', id).execute();
+            await recalcularTabla(f.tor_id); // por si había W.O. aplicados
         });
 
-        return { ok: true };
+        return { ok: true, acreditados: [...acreditados].map(([equipoId, monto]) => ({ equipoId, monto })) };
     }
 
     // Resultados de una fecha terminada (organizador dueño). lista = [{ id, home_goals, away_goals }].
@@ -252,20 +294,33 @@ class FechasManager {
         if (pago.estado === 'pagado') return this.publico(f); // ya pagada: no se cobra de nuevo
         if (pago.estado === 'vencido' || Date.now() > Date.parse(f.vencePago)) return { error: 'Venció el plazo para pagar esta fecha (23:59 del día anterior)' };
 
-        const clave = `${fechaId}:${equipoId}`;
+        // Por equipo (no por fecha): así el mismo saldo a favor no se usa en dos pagos a la vez
+        const clave = `equipo:${equipoId}`;
         if (this.procesando.has(clave)) return { error: 'El pago ya se está procesando' };
         this.procesando.add(clave);
 
         try {
-            const r = await cobrar({ monto: pago.monto, metodo: metodo === 'mercadopago' ? 'mercadopago' : 'tarjeta', simular });
+            // Saldo a favor de una fecha cancelada: se descuenta y se cobra solo la diferencia (puede ser 0)
+            const usado = Math.min(await saldoDe(equipoId), pago.monto);
+            const aCobrar = pago.monto - usado;
+
+            const r = aCobrar > 0
+                ? await cobrar({ monto: aCobrar, metodo: metodo === 'mercadopago' ? 'mercadopago' : 'tarjeta', simular })
+                : { ok: true, id: null, metodo: 'saldo', monto: 0 };
             if (!r.ok) return { error: r.motivo };
 
-            // Solo si sigue pendiente: si vencio mientras se procesaba el cobro (tarda ~1 s), no se marca
-            const datos = { id: r.id, metodo: r.metodo, monto: r.monto, fecha: new Date().toISOString() };
-            const act = await q().updateTable('fecha_pagos').set({ estado: 'pagado', pago: JSON.stringify(datos) })
-                .where('fechaId', '=', fechaId).where('equipoId', '=', equipoId).where('estado', '=', 'pendiente')
-                .executeTakeFirst();
-            if (!Number(act.numUpdatedRows)) return { error: 'Venció el plazo para pagar esta fecha' };
+            // monto = la parte completa (lo cobrado más el saldo usado): así lo cuenta el panel del organizador
+            const datos = { id: r.id, metodo: r.metodo, monto: pago.monto, cobrado: r.monto, saldo: usado, fecha: new Date().toISOString() };
+            const ok = await tx(async () => {
+                // Solo si sigue pendiente: si vencio mientras se procesaba el cobro (tarda ~1 s), no se marca
+                const act = await q().updateTable('fecha_pagos').set({ estado: 'pagado', pago: JSON.stringify(datos) })
+                    .where('fechaId', '=', fechaId).where('equipoId', '=', equipoId).where('estado', '=', 'pendiente')
+                    .executeTakeFirst();
+                if (!Number(act.numUpdatedRows)) return false;
+                await moverSaldo({ equipoId, torId: f.tor_id, monto: -usado, motivo: 'pago-fecha', fechaNumero: f.numero });
+                return true;
+            });
+            if (!ok) return { error: 'Venció el plazo para pagar esta fecha' };
 
             return this.publico(await this.getById(fechaId));
         } finally {
@@ -322,6 +377,8 @@ class FechasManager {
             const ami = wo === 'a-favor' ? await amistososManager.getByPartido(p.id) : null;
             const miPago = f.pagos?.[eq.id];
             const multa = await multasManager.getDe(f.id, eq.id);
+            const saldo = await saldoDe(eq.id); // a favor, de fechas canceladas
+            const usaSaldo = miPago?.estado === 'pendiente' ? Math.min(saldo, miPago.monto) : 0;
 
             salida.push({
                 torneo: { id: tor.id, nombre: tor.nombre, modalidad: tor.modalidad, sede: tor.sede, direccion: tor.direccion, zona: tor.zona, organizador: tor.organizador, organizadorId: tor.organizadorId },
@@ -329,7 +386,13 @@ class FechasManager {
                 equipo: { id: eq.id, name: eq.name },
                 partido: p ? { id: p.id, date: p.date, cancha: p.cancha ?? null, local: soyLocal, rival: { id: rival.id, name: rival.name, logo: rival.logo }, wo } : null, // null = te toca libre
                 // null = sin cobro online (fecha vieja) o te toca libre
-                pago: miPago ? { estado: miPago.estado, monto: miPago.monto, vence: f.vencePago } : null,
+                // usaSaldo / aPagar: si está pendiente, cuánto se descuenta del saldo y cuánto se cobra.
+                // conSaldo: si ya está paga, cuánto se pagó con saldo
+                pago: miPago ? {
+                    estado: miPago.estado, monto: miPago.monto, vence: f.vencePago,
+                    usaSaldo, aPagar: miPago.monto - usaSaldo, conSaldo: miPago.pago?.saldo ?? 0,
+                } : null,
+                saldo, // saldo a favor disponible en el torneo
                 // Si el rival dejo vencer el pago (sirve cuando el torneo no tiene penalizacion: no hay W.O. automatico)
                 rivalPago: rivalId ? f.pagos?.[rivalId]?.estado ?? null : null,
                 multa: multa ? { monto: multa.monto, estado: multa.estado } : null,

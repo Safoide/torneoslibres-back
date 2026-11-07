@@ -1,4 +1,5 @@
 import { torneosManager, equiposManager, fechasManager, partidosManager, inscripcionesManager, amistososManager, multasManager } from '../manager/instances.js';
+import { devolucionesDeTorneos } from './saldosService.js';
 
 const MESES = 6; // cuantos meses muestra el grafico de ingresos
 
@@ -161,5 +162,7 @@ export const dashboardDe = async (orgId) => {
         porMes: meses.map(mes => ({ mes, monto: porMes[mes] })),
         proximasFechas: proximas.sort((a, b) => a.fecha.dia.localeCompare(b.fecha.dia) || a.fecha.inicio.localeCompare(b.fecha.inicio)).slice(0, 5),
         torneos,
+        // Saldos a favor que quedaron al terminar un torneo y el organizador todavía tiene que devolver
+        devoluciones: (await devolucionesDeTorneos(torIds)).filter(d => d.estado === 'pendiente'),
     };
 };

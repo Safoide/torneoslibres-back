@@ -50,7 +50,8 @@ export const reemplazarTodo = (datos) => tx(async () => {
     }
 
     // Primero lo que depende de otra tabla
-    for (const t of ['fecha_pagos', 'club_jugadores', ...[...COLECCIONES].reverse()]) await q().deleteFrom(t).execute();
+    // Los saldos a favor y las devoluciones dependen de los equipos de cada torneo: se borran con ellos (no se vuelven a cargar)
+    for (const t of ['devoluciones', 'saldos', 'fecha_pagos', 'club_jugadores', ...[...COLECCIONES].reverse()]) await q().deleteFrom(t).execute();
 
     // De a una fila: no todas traen las mismas columnas (los datos viejos tienen campos de menos)
     // y asi cada una toma los valores por defecto que le faltan

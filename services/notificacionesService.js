@@ -6,15 +6,18 @@
 export const TIPOS = {
     capitan: [
         { id: 'fechaNueva', titulo: 'Fecha nueva', texto: 'Cuando el organizador arma una fecha de un torneo donde jugás: día, horario, cancha y rival.', porDefecto: true },
+        { id: 'fechaCancelada', titulo: 'Fecha cancelada', texto: 'Si el organizador cancela una fecha en la que jugabas. Si ya la habías pagado, te queda como saldo a favor.', porDefecto: true },
         { id: 'recordatorioPago', titulo: 'Recordatorio de pago', texto: 'El día que vence el pago de la fecha, si todavía no pagaste tu parte.', porDefecto: true },
         { id: 'woMultas', titulo: 'W.O. y multas', texto: 'Si un partido tuyo se define por W.O. porque vos o tu rival no pagaron la fecha, o si te llega una multa.', porDefecto: true },
         { id: 'resultados', titulo: 'Resultados', texto: 'Cuando el organizador carga los resultados de una fecha que jugaste.', porDefecto: true },
+        { id: 'devoluciones', titulo: 'Devoluciones', texto: 'Si un torneo termina y te queda saldo a favor (de una fecha cancelada que ya habías pagado), y cuando el organizador te lo devuelve.', porDefecto: true },
         { id: 'inscripcion', titulo: 'Inscripciones', texto: 'La confirmación cuando tu equipo queda inscripto y cuando el torneo empieza.', porDefecto: true },
     ],
     organizador: [
         { id: 'equipoInscripto', titulo: 'Equipo inscripto', texto: 'Cada vez que un equipo se inscribe y paga en uno de tus torneos.', porDefecto: true },
         { id: 'pagosVencidos', titulo: 'Pagos de fechas vencidos', texto: 'Cuando algún equipo no pagó una fecha a tiempo.', porDefecto: true },
         { id: 'estadoTorneo', titulo: 'Estado de tus torneos', texto: 'Cuando la inscripción se cierra sola, el torneo empieza o no puede empezar por falta de equipos.', porDefecto: true },
+        { id: 'devoluciones', titulo: 'Devoluciones', texto: 'Cuando finalizás un torneo y a algún equipo le queda saldo a favor que le tenés que devolver.', porDefecto: true },
         { id: 'resultadosPendientes', titulo: 'Resultados por cargar', texto: 'Un recordatorio si una fecha ya se jugó y todavía no cargaste los resultados.', porDefecto: true },
     ],
 };
