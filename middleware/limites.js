@@ -53,3 +53,23 @@ export const limiteGoogle = limite({
     keyGenerator: (req) => ipKeyGenerator(req.ip),
     mensaje: 'Demasiados intentos de ingreso. Probá de nuevo en 15 minutos.',
 });
+
+// Recuperar contraseña: cada pedido manda un mail. Por IP y por email (para no llenarle la casilla a nadie)
+export const limiteRecuperarIp = limite({
+    ventana: 15 * MIN, max: 10,
+    keyGenerator: (req) => ipKeyGenerator(req.ip),
+    mensaje: 'Pediste demasiados links. Probá de nuevo en 15 minutos.',
+});
+
+export const limiteRecuperarEmail = limite({
+    ventana: 60 * MIN, max: 3,
+    keyGenerator: (req) => `recuperar:${String(req.body?.email ?? '').trim().toLowerCase()}`,
+    mensaje: 'Ya te mandamos varios links a ese email. Revisá tu casilla (y el spam) o probá de nuevo en una hora.',
+});
+
+// Usar el link (revisarlo o poner la contraseña nueva). El token no se puede adivinar; esto solo corta abusos
+export const limiteRestablecer = limite({
+    ventana: 15 * MIN, max: 30,
+    keyGenerator: (req) => ipKeyGenerator(req.ip),
+    mensaje: 'Demasiados intentos. Probá de nuevo en 15 minutos.',
+});

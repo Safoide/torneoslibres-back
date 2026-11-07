@@ -1,8 +1,10 @@
 import { Router } from '../middleware/router.js';
 import { usuariosManager as manager, clubesManager, organizadoresManager } from '../manager/instances.js';
 import { requireAuth, signToken } from '../middleware/auth.js';
-import { limiteLoginIp, limiteLoginEmail, limiteRegistro, limiteGoogle } from '../middleware/limites.js';
+import { limiteLoginIp, limiteLoginEmail, limiteRegistro, limiteGoogle, limiteRecuperarIp, limiteRecuperarEmail, limiteRestablecer } from '../middleware/limites.js';
 import { verificarGoogle } from '../services/googleService.js';
+import { enviarMail, plantilla } from '../services/mailService.js';
+import { SITIO_URL } from '../config.js';
 
 const router = Router();
 
@@ -35,6 +37,47 @@ router.post('/google', limiteGoogle, async (req, res) => {
         user: r.user, token: await signToken(r.user),
         nueva: !!r.nueva, vinculada: !!r.vinculada, passwordBorrada: !!r.passwordBorrada,
     });
+});
+
+// ---------- Recuperar contraseña ----------
+
+// Pedir el link. Responde lo mismo exista o no la cuenta (no revela qué emails están registrados)
+// y el mail se manda sin esperarlo, así la respuesta tarda igual en los dos casos.
+// El token va en el # del link: el navegador no lo manda a ningún servidor ni en el Referer
+router.post('/olvide', limiteRecuperarIp, limiteRecuperarEmail, async (req, res) => {
+    const r = await manager.pedirRecuperacion(req.body?.email);
+    if (r.error) return res.status(400).json({ error: r.error });
+
+    if (r.token) {
+        const link = `${SITIO_URL}/restablecer#${r.token}`;
+        const extra = r.usuario.tienePassword ? [] : ['Tu cuenta entra con Google: con este link además le creás una contraseña.'];
+        const parrafos = [`Hola ${r.usuario.nombre}, pediste cambiar la contraseña de tu cuenta de Torneos Libres.`, ...extra, 'El link vale por 1 hora y se puede usar una sola vez.'];
+        const pie = 'Si no fuiste vos, ignorá este mail: tu contraseña no cambia.';
+
+        enviarMail({
+            para: r.usuario.email,
+            asunto: 'Cambiá tu contraseña de Torneos Libres',
+            texto: `${parrafos.join('\n\n')}\n\nCambiala acá: ${link}\n\n${pie}`,
+            html: plantilla({ titulo: 'Cambiá tu contraseña', parrafos, boton: 'Elegir contraseña nueva', link, pie }),
+        });
+    }
+
+    res.json({ ok: true });
+});
+
+// Revisar el link antes de mostrar el formulario. body: { token }
+router.post('/restablecer/revisar', limiteRestablecer, async (req, res) => {
+    const r = await manager.revisarLink(req.body?.token);
+    res.status(r.error ? 400 : 200).json(r);
+});
+
+// Poner la contraseña nueva con el link. body: { token, nueva }. Cierra las otras sesiones y deja la cuenta iniciada
+router.post('/restablecer', limiteRestablecer, async (req, res) => {
+    const r = await manager.restablecerPassword(req.body ?? {});
+    if (r.error) return res.status(400).json(r);
+
+    const user = await manager.getById(r.userId);
+    res.json({ user, token: await signToken(user) });
 });
 
 router.get('/me', requireAuth, async (req, res) => {

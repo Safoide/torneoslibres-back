@@ -1,6 +1,6 @@
 import bcrypt from 'bcryptjs';
-import { randomUUID } from 'crypto';
-import { q, esDuplicado } from '../db/index.js';
+import { randomUUID, randomBytes, createHash } from 'crypto';
+import { q, tx, esDuplicado } from '../db/index.js';
 import { verificarGoogle } from '../services/googleService.js';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -14,6 +14,12 @@ const SIN_PASSWORD = 'Tu cuenta entra con Google y todavía no tiene contraseña
 // Frena la fuerza bruta sobre la contraseña actual: 5 errores cada 15 minutos por usuario
 const MAX_INTENTOS = 5;
 const VENTANA_MS = 15 * 60 * 1000;
+
+// Recuperar contraseña: el link vale 1 hora y una sola vez. En la base va solo el hash del token
+const VIGENCIA_LINK_MS = 60 * 60 * 1000;
+const LINK_INVALIDO = 'El link no es válido o ya venció. Pedí uno nuevo.';
+const hashToken = (token) => createHash('sha256').update(String(token)).digest('hex');
+const TOKEN_RE = /^[A-Za-z0-9_-]{20,100}$/;
 
 class UsuariosManager {
     constructor() {
@@ -87,6 +93,8 @@ class UsuariosManager {
             // El email es UNIQUE en la base: dos pedidos simultaneos no pueden quedarse con el mismo
             // Un email nuevo todavia no esta verificado
             await q().updateTable('usuarios').set({ nombre, email, ...(email !== usuario.email ? { emailVerificado: 0 } : {}) }).where('id', '=', id).execute();
+            // Los links de recuperacion mandados al email anterior dejan de valer
+            if (email !== usuario.email) await q().deleteFrom('password_tokens').where('usuarioId', '=', id).execute();
         } catch (err) {
             if (esDuplicado(err)) return EMAIL_REPETIDO;
             throw err;
@@ -144,10 +152,87 @@ class UsuariosManager {
     }
 
     async eliminar(id) {
-        await q().deleteFrom('usuarios').where('id', '=', id).execute();
+        await tx(async () => {
+            await q().deleteFrom('password_tokens').where('usuarioId', '=', id).execute();
+            await q().deleteFrom('usuarios').where('id', '=', id).execute();
+        });
         this.intentos.delete(id);
 
         return { ok: true };
+    }
+
+    // ---------- Recuperar contraseña ----------
+
+    // Crea un link de un solo uso para la cuenta con ese email. Si no hay cuenta devuelve { ok } igual
+    // (la ruta responde lo mismo exista o no). Pedir uno nuevo invalida los anteriores.
+    // Devuelve { ok, usuario?, token? }: quien llama manda el mail (fuera de la transacción)
+    async pedirRecuperacion(email) {
+        email = String(email ?? '').trim().toLowerCase();
+        if (!EMAIL_RE.test(email)) return { error: 'El email no es válido' };
+
+        const usuario = await this.getByEmail(email);
+        if (!usuario) return { ok: true };
+
+        const token = randomBytes(32).toString('base64url');
+        const ahora = new Date();
+        await tx(async () => {
+            // Los anteriores de la cuenta y, de paso, los vencidos de todos
+            await q().deleteFrom('password_tokens')
+                .where((eb) => eb.or([eb('usuarioId', '=', usuario.id), eb('vence', '<', ahora.toISOString())]))
+                .execute();
+            await q().insertInto('password_tokens').values({
+                tokenHash: hashToken(token), usuarioId: usuario.id,
+                vence: new Date(ahora.getTime() + VIGENCIA_LINK_MS).toISOString(), creado: ahora.toISOString(),
+            }).execute();
+        });
+
+        return { ok: true, usuario: this.publico(usuario), token };
+    }
+
+    // La cuenta del link, si sigue vigente (o null)
+    async cuentaDelLink(token) {
+        if (!TOKEN_RE.test(String(token ?? ''))) return null;
+
+        const fila = await q().selectFrom('password_tokens').selectAll()
+            .where('tokenHash', '=', hashToken(token)).where('vence', '>', new Date().toISOString())
+            .executeTakeFirst();
+        return fila ? this.getRaw(fila.usuarioId) : null;
+    }
+
+    // Para que el front muestre el formulario solo si el link sirve
+    async revisarLink(token) {
+        const usuario = await this.cuentaDelLink(token);
+        if (!usuario) return { error: LINK_INVALIDO };
+        return { ok: true, email: usuario.email, tienePassword: !!usuario.passwordHash };
+    }
+
+    // Pone la contraseña nueva. Usa el link (una sola vez), cierra las sesiones abiertas y marca el email
+    // como verificado (el link llegó a ese email). Devuelve { ok, userId } | { error }
+    async restablecerPassword({ token, nueva } = {}) {
+        nueva = String(nueva ?? '');
+        if (nueva.length < 8 || nueva.length > 72) return { error: 'La contraseña nueva debe tener entre 8 y 72 caracteres' };
+
+        const usuario = await this.cuentaDelLink(token);
+        if (!usuario) return { error: LINK_INVALIDO };
+
+        const hash = await bcrypt.hash(nueva, 10); // lento: fuera de la transaccion
+
+        const r = await tx(async () => {
+            // Condicional: si dos pedidos usan el mismo link a la vez, solo uno lo consume
+            const usado = await q().deleteFrom('password_tokens')
+                .where('tokenHash', '=', hashToken(token)).where('vence', '>', new Date().toISOString())
+                .executeTakeFirst();
+            if (!Number(usado.numDeletedRows)) return { error: LINK_INVALIDO };
+
+            await q().deleteFrom('password_tokens').where('usuarioId', '=', usuario.id).execute();
+            await q().updateTable('usuarios')
+                .set((eb) => ({ passwordHash: hash, emailVerificado: 1, tokenVersion: eb('tokenVersion', '+', 1) }))
+                .where('id', '=', usuario.id).execute();
+            return { ok: true, userId: usuario.id };
+        });
+
+        if (r.ok) this.intentos.delete(usuario.id);
+        return r;
     }
 
     async registrar({ nombre, email, password, rol } = {}) {

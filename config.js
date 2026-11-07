@@ -6,6 +6,10 @@ import path from 'path';
 export const DATA_DIR = process.env.DATA_DIR || './databases';
 export const UPLOADS_DIR = process.env.UPLOADS_DIR || './uploads';
 
+// Dirección pública del front, para los links de los mails. Por defecto el primer origen de CORS_ORIGIN
+// (en producción, el dominio) y en desarrollo el front local. Nunca se toma del pedido (se podría falsear el Host)
+export const SITIO_URL = (process.env.SITIO_URL || process.env.CORS_ORIGIN?.split(',')[0] || 'http://localhost:3000').trim().replace(/\/+$/, '');
+
 fs.mkdirSync(DATA_DIR, { recursive: true });
 fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 
