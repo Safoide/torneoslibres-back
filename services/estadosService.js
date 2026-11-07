@@ -1,6 +1,7 @@
 import { torneosManager, inscripcionesManager, fechasManager } from '../manager/instances.js';
 import { finCierre, cierreDe, hoyAR } from '../manager/torneosManager.js';
 import { q } from '../db/index.js';
+import { avisarEstados } from './avisosService.js';
 
 // Estados del torneo:
 //   proximamente ⇄ inscripcion-abierta → inscripcion-cerrada → en-curso → finalizado
@@ -37,6 +38,8 @@ export const procesarEstados = (ahora = Date.now()) => {
 const correr = async (ahora) => {
     const resumen = { cerradas: 0, empezados: 0 };
     const hoy = hoyAR();
+    // Para los avisos por mail (se mandan al final, en segundo plano)
+    const cambios = { cerradas: [], empezados: [], sinEquipos: [] };
 
     for (const tor of await torneosManager.getTorneos()) {
         let estado = tor.estado;
@@ -45,15 +48,24 @@ const correr = async (ahora) => {
             if (await pasar(tor.id, 'inscripcion-abierta', 'inscripcion-cerrada')) {
                 estado = 'inscripcion-cerrada';
                 resumen.cerradas++;
+                cambios.cerradas.push(tor.id);
             }
         }
 
-        if (estado === 'inscripcion-cerrada' && hoy >= tor.fechaInicio && tor.equiposInscriptos >= MIN_EQUIPOS) {
-            if (await pasar(tor.id, 'inscripcion-cerrada', 'en-curso')) resumen.empezados++;
+        if (estado === 'inscripcion-cerrada' && hoy >= tor.fechaInicio) {
+            if (tor.equiposInscriptos >= MIN_EQUIPOS) {
+                if (await pasar(tor.id, 'inscripcion-cerrada', 'en-curso')) {
+                    resumen.empezados++;
+                    cambios.empezados.push(tor.id);
+                }
+            } else {
+                cambios.sinEquipos.push(tor.id); // el aviso se manda una sola vez por fecha de inicio
+            }
         }
     }
 
     if (resumen.cerradas || resumen.empezados) console.log('Estados de torneos actualizados:', resumen);
+    if (cambios.cerradas.length || cambios.empezados.length || cambios.sinEquipos.length) avisarEstados(cambios);
     return resumen;
 };
 

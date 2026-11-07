@@ -8,6 +8,9 @@ import * as m001 from './migraciones/001-inicial.js';
 import * as m002 from './migraciones/002-login-google.js';
 import * as m003 from './migraciones/003-cierre-inscripcion.js';
 import * as m004 from './migraciones/004-recuperar-password.js';
+import * as m005 from './migraciones/005-notificaciones.js';
+import * as m006 from './migraciones/006-recordatorio-pago.js';
+import * as m007 from './migraciones/007-avisos-organizador.js';
 
 // Base de datos: SQLite (un archivo en DATA_DIR) a través de Kysely.
 // Kysely arma las consultas: para pasar a PostgreSQL se cambia el dialecto de acá (y poco más),
@@ -37,7 +40,7 @@ export const tx = (fn) => actual.getStore()
 // ---------- Migraciones ----------
 // Cada cambio de estructura va en un archivo nuevo de db/migraciones/ (nunca editar uno ya publicado)
 // y se agrega a esta lista. Corren solas al arrancar la API: en produccion la base arranca vacia.
-const MIGRACIONES = { '001-inicial': m001, '002-login-google': m002, '003-cierre-inscripcion': m003, '004-recuperar-password': m004 };
+const MIGRACIONES = { '001-inicial': m001, '002-login-google': m002, '003-cierre-inscripcion': m003, '004-recuperar-password': m004, '005-notificaciones': m005, '006-recordatorio-pago': m006, '007-avisos-organizador': m007 };
 
 export const migrar = async () => {
     const migrator = new Migrator({ db, provider: { getMigrations: async () => MIGRACIONES } });

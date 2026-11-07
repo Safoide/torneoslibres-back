@@ -1,6 +1,7 @@
 import { Router } from '../middleware/router.js';
 import { usuariosManager as manager, clubesManager, organizadoresManager } from '../manager/instances.js';
-import { requireAuth, signToken } from '../middleware/auth.js';
+import { requireAuth, signToken, firmaValida } from '../middleware/auth.js';
+import { quiereMail, tituloDe } from '../services/notificacionesService.js';
 import { limiteLoginIp, limiteLoginEmail, limiteRegistro, limiteGoogle, limiteRecuperarIp, limiteRecuperarEmail, limiteRestablecer } from '../middleware/limites.js';
 import { verificarGoogle } from '../services/googleService.js';
 import { enviarMail, plantilla } from '../services/mailService.js';
@@ -29,7 +30,7 @@ router.post('/google', limiteGoogle, async (req, res) => {
     const perfil = await verificarGoogle(req.body?.credential);
     if (perfil.error) return res.status(perfil.status ?? 400).json({ error: perfil.error });
 
-    const r = await manager.entrarConGoogle(perfil, req.body?.rol);
+    const r = await manager.entrarConGoogle(perfil, req.body?.rol, { novedades: req.body?.novedades });
     if (r.error) return res.status(400).json(r);
     if (r.necesitaRol) return res.json(r);
 
@@ -103,6 +104,47 @@ router.put('/me', requireAuth, async (req, res) => {
     if (club) await clubesManager.cambiarWhatsapp(club.id, digitos);
 
     res.json(user);
+});
+
+// Notificaciones por email: { avisos: [{ id, titulo, texto, activa }], novedades: { id, titulo, texto, activa } }
+router.get('/notificaciones', requireAuth, async (req, res) => {
+    const p = await manager.preferencias(req.userId);
+    if (!p) return res.status(404).json({ error: 'No se encontró la cuenta' });
+    res.json(p);
+});
+
+// body: { avisos?: { tipo: bool }, novedades?: bool }. Responde las preferencias como quedaron
+router.put('/notificaciones', requireAuth, async (req, res) => {
+    const p = await manager.guardarPreferencias(req.userId, req.body ?? {});
+    res.status(p.error ? 400 : 200).json(p);
+});
+
+// Darse de baja de un aviso desde el link del mail (sin iniciar sesión). body: { u: usuarioId, a: tipo, f: firma }
+// /revisar muestra qué aviso es (el front pide confirmar con un botón, así los programas que abren links no dan de baja a nadie)
+const datosBaja = async (body) => {
+    const u = String(body?.u ?? ''), a = String(body?.a ?? '');
+    if (!firmaValida(`baja:${u}:${a}`, body?.f)) return { error: 'El link no es válido' };
+
+    const usuario = await manager.getRaw(u);
+    const titulo = tituloDe(a);
+    if (!usuario || !titulo) return { error: 'El link no es válido' };
+    return { usuario, tipo: a, titulo };
+};
+const emailOculto = (email) => email.replace(/^(.{2})[^@]*/, '$1***');
+
+router.post('/baja/revisar', limiteRestablecer, async (req, res) => {
+    const d = await datosBaja(req.body);
+    if (d.error) return res.status(400).json({ error: d.error });
+    res.json({ titulo: d.titulo, email: emailOculto(d.usuario.email), activa: quiereMail(d.usuario, d.tipo) });
+});
+
+router.post('/baja', limiteRestablecer, async (req, res) => {
+    const d = await datosBaja(req.body);
+    if (d.error) return res.status(400).json({ error: d.error });
+
+    const p = await manager.guardarPreferencias(d.usuario.id, d.tipo === 'novedades' ? { novedades: false } : { avisos: { [d.tipo]: false } });
+    if (p.error) return res.status(400).json({ error: p.error });
+    res.json({ ok: true, titulo: d.titulo });
 });
 
 router.put('/password', requireAuth, async (req, res) => {

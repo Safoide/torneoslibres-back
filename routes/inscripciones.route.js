@@ -1,6 +1,7 @@
 import { Router } from '../middleware/router.js';
 import { inscripcionesManager as manager } from '../manager/instances.js';
 import { requireAuth, requireRol } from '../middleware/auth.js';
+import { avisarInscripcion } from '../services/avisosService.js';
 
 const router = Router();
 
@@ -26,7 +27,10 @@ router.get('/:id', requireAuth, esMia, (req, res) => {
 });
 
 router.post('/:id/pagar', requireAuth, requireRol('capitan'), esMia, async (req, res) => {
-    send(res, await manager.pagar(req.params.id, req.body));
+    const result = await manager.pagar(req.params.id, req.body);
+    // Recién confirmada (si ya estaba pagada, pagar la devuelve igual: no se avisa de nuevo)
+    if (!result?.error && result?.estado === 'confirmada' && req.insc.estado !== 'confirmada') avisarInscripcion(result);
+    send(res, result);
 });
 
 export default router;

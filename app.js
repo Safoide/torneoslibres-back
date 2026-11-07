@@ -18,6 +18,7 @@ import amistososRouter from "./routes/amistosos.route.js";
 import multasRouter from "./routes/multas.route.js";
 import { procesarVencimientos } from "./services/vencimientosService.js";
 import { procesarEstados } from "./services/estadosService.js";
+import { procesarAvisosProgramados } from "./services/avisosService.js";
 import { migrar, copiarBase, DB_FILE } from "./db/index.js";
 import { importarJsonViejos } from "./db/importarJson.js";
 
@@ -86,7 +87,10 @@ app.listen(port, process.env.HOST || undefined, () => {
 const vencer = () => procesarEstados()
     .catch(err => console.error('Error actualizando estados de torneos:', err))
     .then(() => procesarVencimientos())
-    .catch(err => console.error('Error procesando vencimientos:', err));
+    .catch(err => console.error('Error procesando vencimientos:', err))
+    // Después de los vencimientos: así nunca se recuerda un pago que ya venció (y los resultados por cargar)
+    .then(() => procesarAvisosProgramados())
+    .catch(err => console.error('Error mandando avisos programados:', err));
 vencer();
 setInterval(vencer, 60 * 1000);
 

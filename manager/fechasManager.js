@@ -30,10 +30,11 @@ class FechasManager {
             ? deFilas('fecha_pagos', await q().selectFrom('fecha_pagos').selectAll().where('fechaId', 'in', conCobro).orderBy('orden').execute())
             : [];
 
-        return fechas.map(({ cobro, ...f }) => {
+        // avisoResultados: control interno de los avisos por mail
+        return fechas.map(({ cobro, avisoResultados, ...f }) => {
             if (!cobro) return f;
             const deEsta = pagos.filter(p => p.fechaId === f.id);
-            return { ...f, pagos: Object.fromEntries(deEsta.map(({ fechaId, equipoId, orden, pago, ...p }) => [equipoId, pago ? { ...p, pago } : p])) };
+            return { ...f, pagos: Object.fromEntries(deEsta.map(({ fechaId, equipoId, orden, pago, recordado, ...p }) => [equipoId, pago ? { ...p, pago } : p])) };
         });
     }
 

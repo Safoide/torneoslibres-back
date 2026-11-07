@@ -2,6 +2,7 @@ import { fechasManager, partidosManager, equiposManager, torneosManager, amistos
 import { REGLAS_DEFAULT, montoMulta } from '../manager/torneosManager.js';
 import { recalcularTabla } from './fixtureService.js';
 import { tx } from '../db/index.js';
+import { avisarVencimientos } from './avisosService.js';
 
 // Procesa las fechas cuyo plazo de pago (23:59 del dia anterior) ya vencio, segun las reglas del torneo
 // (copiadas en la fecha al crearla):
@@ -23,7 +24,8 @@ const correr = async (ahora) => {
     const resumen = { fechas: 0, wo: 0, dobles: 0, amistosos: 0, multas: 0 };
 
     for (const f of await fechasManager.vencidasSinProcesar(ahora)) {
-        await tx(() => procesarFecha(f, resumen));
+        const evento = await tx(() => procesarFecha(f, resumen));
+        if (evento) avisarVencimientos(evento); // mails después de la transacción, en segundo plano
     }
 
     if (resumen.fechas) console.log('Vencimientos de pago procesados:', resumen);
@@ -37,10 +39,12 @@ const procesarFecha = async (f, resumen) => {
 
     const noPagaron = new Set(vencidos);
     const reglas = { ...REGLAS_DEFAULT, ...(f.reglas ?? {}) };
-    if (!noPagaron.size || !reglas.penalizacion) return;
+    // Lo que se avisa por mail cuando termine la transacción (null = todos pagaron)
+    const evento = noPagaron.size ? { fechaId: f.id, noPagaron: vencidos, penalizacion: !!reglas.penalizacion } : null;
+    if (!noPagaron.size || !reglas.penalizacion) return evento;
 
     const tor = await torneosManager.getTorneoById(f.tor_id);
-    if (tor.error) return;
+    if (tor.error) return null;
 
     const multa = montoMulta(reglas, f.precio);
 
@@ -72,4 +76,5 @@ const procesarFecha = async (f, resumen) => {
     }
 
     await recalcularTabla(f.tor_id);
+    return evento;
 };

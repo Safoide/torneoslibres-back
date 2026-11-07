@@ -1,6 +1,7 @@
 import { Router } from '../middleware/router.js';
-import { fechasManager, clubesManager, equiposManager, multasManager } from '../manager/instances.js';
+import { fechasManager, clubesManager, equiposManager, multasManager, partidosManager } from '../manager/instances.js';
 import { procesarVencimientos } from '../services/vencimientosService.js';
+import { avisarFechaNueva, avisarResultados } from '../services/avisosService.js';
 import { requireAuth, requireRol } from '../middleware/auth.js';
 import { conOrganizacion, miTorneo } from '../middleware/organizador.js';
 
@@ -59,7 +60,10 @@ router.post('/', requireAuth, requireRol('organizador'), conOrganizacion, async 
     if (error) return res.status(status).json({ error });
 
     const result = await fechasManager.crear(tor, req.body);
-    res.status(result.error ? 400 : 201).json(result);
+    if (result.error) return res.status(400).json(result);
+
+    avisarFechaNueva(tor, result); // mails a los capitanes, en segundo plano (no frena la respuesta)
+    res.status(201).json(result);
 });
 
 // Cargar o corregir los resultados de una fecha terminada: solo el organizador dueño, mientras el torneo esté en curso.
@@ -72,8 +76,12 @@ router.put('/:fechaId/resultados', requireAuth, requireRol('organizador'), conOr
     if (error) return res.status(status).json({ error });
 
     await procesarVencimientos(); // que los W.O. pendientes queden aplicados antes de cargar resultados
+    const antes = await partidosManager.getByFecha(tor.id, fecha.numero); // para avisar solo los que cambiaron
     const result = await fechasManager.cargarResultados(fecha, tor, req.body?.resultados);
-    res.status(result.error ? 400 : 200).json(result);
+    if (result.error) return res.status(400).json(result);
+
+    avisarResultados(tor, fecha, antes, result); // mails a los capitanes, en segundo plano
+    res.json(result);
 });
 
 router.delete('/:fechaId', requireAuth, requireRol('organizador'), conOrganizacion, async (req, res) => {

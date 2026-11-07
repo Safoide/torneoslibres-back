@@ -55,7 +55,7 @@ export const errorCierre = (tor, { exigirFuturo = false } = {}) => {
 // Fila -> torneo, con el cierre siempre calculado. cierreAutomatico: el organizador no eligió uno
 // (sigue a la fecha de inicio y al precio por fecha si cambian)
 const armar = (fila) => {
-    const tor = deFila('torneos', fila);
+    const { avisoSinEquipos, ...tor } = deFila('torneos', fila); // control interno de los avisos por mail
     return { ...tor, cierreInscripcion: cierreDe(tor), cierreAutomatico: !tor.cierreInscripcion };
 };
 

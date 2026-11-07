@@ -3,6 +3,7 @@ import { partidosManager as manager, fechasManager } from '../manager/instances.
 import { requireAuth, requireRol } from '../middleware/auth.js';
 import { conOrganizacion, miTorneo } from '../middleware/organizador.js';
 import { procesarVencimientos } from '../services/vencimientosService.js';
+import { avisarResultados } from '../services/avisosService.js';
 
 const router = Router();
 
@@ -38,8 +39,11 @@ router.put('/:matchId', requireAuth, requireRol('organizador'), conOrganizacion,
     if (!fecha) return res.status(400).json({ error: 'El partido no pertenece a ninguna fecha' });
 
     await procesarVencimientos();
+    const antes = await manager.getByFecha(tor.id, fecha.numero); // para avisar solo si cambió
     const result = await fechasManager.cargarResultados(fecha, tor, [{ id: partido.id, home_goals: req.body?.home_goals, away_goals: req.body?.away_goals }]);
     if (result.error) return res.status(400).json(result);
+
+    avisarResultados(tor, fecha, antes, result); // mails a los capitanes, en segundo plano
 
     res.json(result.find(p => p.id === partido.id));
 });

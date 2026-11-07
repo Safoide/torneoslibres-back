@@ -2,6 +2,7 @@ import bcrypt from 'bcryptjs';
 import { randomUUID, randomBytes, createHash } from 'crypto';
 import { q, tx, esDuplicado } from '../db/index.js';
 import { verificarGoogle } from '../services/googleService.js';
+import { preferenciasDe, limpiarPreferencias } from '../services/notificacionesService.js';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // Se usa para que el login tarde igual exista o no el email
@@ -21,13 +22,19 @@ const LINK_INVALIDO = 'El link no es válido o ya venció. Pedí uno nuevo.';
 const hashToken = (token) => createHash('sha256').update(String(token)).digest('hex');
 const TOKEN_RE = /^[A-Za-z0-9_-]{20,100}$/;
 
+// Novedades y promociones: solo si lo eligió (true explícito), guardando cuándo
+const consentimiento = (novedades) => (novedades === true
+    ? { novedades: 1, novedadesFecha: new Date().toISOString() }
+    : { novedades: 0, novedadesFecha: null });
+
 class UsuariosManager {
     constructor() {
         this.intentos = new Map(); // userId -> { n, desde }
     }
 
-    // Nunca devolvemos el hash, la version de sesion ni el id de Google: solo si tiene contraseña y si entra con Google
-    publico({ passwordHash, tokenVersion, googleId, emailVerificado, ...rest }) {
+    // Nunca devolvemos el hash, la version de sesion ni el id de Google: solo si tiene contraseña y si entra con Google.
+    // Las preferencias de notificaciones van aparte (GET /auth/notificaciones)
+    publico({ passwordHash, tokenVersion, googleId, emailVerificado, notificaciones, novedades, novedadesFecha, ...rest }) {
         return {
             ...rest,
             rol: rest.rol ?? 'organizador', // las cuentas anteriores a los roles eran todas de organizador
@@ -161,6 +168,30 @@ class UsuariosManager {
         return { ok: true };
     }
 
+    // ---------- Notificaciones ----------
+
+    async preferencias(id) {
+        const usuario = await this.getRaw(id);
+        return usuario ? preferenciasDe(usuario) : null;
+    }
+
+    // body: { avisos?: { tipo: bool }, novedades?: bool }. El front manda todos los avisos juntos
+    // (así dos cambios seguidos no se pisan a medias). Devuelve las preferencias como quedaron
+    async guardarPreferencias(id, body) {
+        const usuario = await this.getRaw(id);
+        if (!usuario) return { error: 'No se encontró la cuenta' };
+
+        const p = limpiarPreferencias(usuario, body);
+        if (p.error) return p;
+
+        const cambios = { notificaciones: JSON.stringify(p.notificaciones) };
+        // La fecha del consentimiento solo cambia si cambió la elección
+        if (p.novedades !== undefined && p.novedades !== !!usuario.novedades) Object.assign(cambios, consentimiento(p.novedades));
+
+        await q().updateTable('usuarios').set(cambios).where('id', '=', id).execute();
+        return this.preferencias(id);
+    }
+
     // ---------- Recuperar contraseña ----------
 
     // Crea un link de un solo uso para la cuenta con ese email. Si no hay cuenta devuelve { ok } igual
@@ -235,7 +266,7 @@ class UsuariosManager {
         return r;
     }
 
-    async registrar({ nombre, email, password, rol } = {}) {
+    async registrar({ nombre, email, password, rol, novedades } = {}) {
         nombre = String(nombre ?? '').trim();
         email = String(email ?? '').trim().toLowerCase();
         password = String(password ?? '');
@@ -250,6 +281,7 @@ class UsuariosManager {
             nombre, email, passwordHash: await bcrypt.hash(password, 10), rol,
             creado: new Date().toISOString(),
             tokenVersion: 0,
+            ...consentimiento(novedades),
         };
 
         try {
@@ -285,11 +317,12 @@ class UsuariosManager {
     //     con un email ajeno): se borra la contraseña y se cierran sus sesiones. Si ya estaba verificado, no se toca.
     //  3. No existe: se crea si viene el tipo de cuenta (rol); si no, se le pide al front que lo pregunte.
     // Devuelve { user, nueva?, vinculada?, passwordBorrada? } | { necesitaRol, email, nombre } | { error }
-    async entrarConGoogle(perfil, rol, intento = 0) {
+    // opciones.novedades: si al crear la cuenta eligió recibir novedades (no cambia una cuenta que ya existe)
+    async entrarConGoogle(perfil, rol, opciones = {}, intento = 0) {
         const { googleId, email, nombre } = perfil;
         // Reintento por si otro pedido (doble clic) vinculo o creo la cuenta al mismo tiempo
         const reintentar = () => (intento < 2
-            ? this.entrarConGoogle(perfil, rol, intento + 1)
+            ? this.entrarConGoogle(perfil, rol, opciones, intento + 1)
             : { error: 'No pudimos completar el ingreso. Probá de nuevo.' });
 
         const vinculada = await this.getByGoogleId(googleId);
@@ -323,6 +356,7 @@ class UsuariosManager {
             id: `USR-${randomUUID().slice(0, 8)}`,
             nombre: nombre || email.split('@')[0], email, passwordHash: null, rol,
             creado: new Date().toISOString(), tokenVersion: 0, googleId, emailVerificado: 1,
+            ...consentimiento(opciones.novedades),
         };
         try {
             await q().insertInto('usuarios').values(usuario).execute();
