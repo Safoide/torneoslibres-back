@@ -74,6 +74,14 @@ export const limiteRestablecer = limite({
     mensaje: 'Demasiados intentos. Probá de nuevo en 15 minutos.',
 });
 
+// Formulario de contacto: cada mensaje es un mail a nuestra casilla. Por IP (no pide iniciar sesión).
+// Solo cuentan los que se mandan: equivocarse en un campo no gasta intentos
+export const limiteContacto = limite({
+    ventana: 60 * MIN, max: 5, skipFailedRequests: true,
+    keyGenerator: (req) => ipKeyGenerator(req.ip),
+    mensaje: 'Mandaste varios mensajes seguidos. Probá de nuevo en una hora (o escribinos directo por mail).',
+});
+
 // Reenviar el mail de verificación: por cuenta (va después de requireAuth)
 export const limiteVerificacion = limite({
     ventana: 60 * MIN, max: 5,

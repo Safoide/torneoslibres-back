@@ -10,6 +10,12 @@ export const UPLOADS_DIR = process.env.UPLOADS_DIR || './uploads';
 // (en producción, el dominio) y en desarrollo el front local. Nunca se toma del pedido (se podría falsear el Host)
 export const SITIO_URL = (process.env.SITIO_URL || process.env.CORS_ORIGIN?.split(',')[0] || 'http://localhost:3000').trim().replace(/\/+$/, '');
 
+// Versión vigente de los términos y condiciones + la política de privacidad (una sola para los dos textos).
+// Tiene que ser igual a VERSION_LEGAL de src/assets/legal.js en el front. Al cambiarla, todas las cuentas
+// tienen que volver a aceptarlos (el front les muestra el aviso: `terminosPendientes` en /auth/me).
+// Subirla solo por cambios importantes: un cambio de redacción no hace falta.
+export const TERMINOS_VERSION = '2026-11-07';
+
 fs.mkdirSync(DATA_DIR, { recursive: true });
 fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 

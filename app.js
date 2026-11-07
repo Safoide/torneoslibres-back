@@ -16,6 +16,7 @@ import organizadoresRouter from "./routes/organizadores.route.js";
 import authRouter from "./routes/auth.route.js";
 import amistososRouter from "./routes/amistosos.route.js";
 import multasRouter from "./routes/multas.route.js";
+import contactoRouter from "./routes/contacto.route.js";
 import { procesarVencimientos } from "./services/vencimientosService.js";
 import { procesarEstados } from "./services/estadosService.js";
 import { procesarAvisosProgramados } from "./services/avisosService.js";
@@ -66,6 +67,7 @@ app.use('/organizadores', organizadoresRouter);
 app.use('/amistosos', amistososRouter);
 app.use('/multas', multasRouter);
 app.use('/auth', authRouter);
+app.use('/contacto', contactoRouter);
 
 app.use((req, res) => res.status(404).json({ error: 'No existe esa ruta' }));
 
